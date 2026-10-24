@@ -43,7 +43,12 @@ body { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none
 body.no-cursor, body.no-cursor * { cursor: none; }
 #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; background: var(--void); outline: none; -webkit-touch-callout: none; }
 #stage:focus-visible { outline: 2px solid var(--ember); outline-offset: -4px; }
+/* The camera feed sits outside #app: Safari presents any video inside a full-screen element as the
+   full-screen content, so only #app (the drawing and the cards) goes full screen. */
 #cam { position: fixed; right: 0; bottom: 0; width: 2px; height: 2px; opacity: 0.01; pointer-events: none; }
+#app { position: fixed; inset: 0; background: var(--void); }
+#app:fullscreen { width: 100%; height: 100%; background: var(--void); }
+#app:-webkit-full-screen { width: 100%; height: 100%; background: var(--void); }
 .panel {
   position: fixed; inset: 0; box-sizing: border-box; display: grid; place-items: center; pointer-events: none;
   padding-block: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-bottom, 0px));
@@ -90,8 +95,9 @@ body.no-cursor, body.no-cursor * { cursor: none; }
 </style>
 </head>
 <body>
+<video id="cam" playsinline muted aria-hidden="true"></video>
+<div id="app">
 <canvas id="stage" tabindex="0" aria-label="Pandora's box. Open the box, or touch the seal, to set the evils free."></canvas>
-<video id="cam" playsinline muted autoplay aria-hidden="true"></video>
 <div class="panel" id="panel" hidden>
   <section class="card" id="card-setup" aria-labelledby="setup-title">
     <h1 id="setup-title">Pandora’s Box</h1>
@@ -109,11 +115,13 @@ body.no-cursor, body.no-cursor * { cursor: none; }
     <p>Lay the iPad face up in the box, keep the front camera uncovered, and close the lid. You’ll hear a thud when it’s armed.</p>
     <div class="meter" id="meter" role="meter" aria-label="Light at the camera" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="meter-fill"></span></div>
     <p class="hint">Light at the camera. Cover the camera with your hand and the bar should drop to nothing.</p>
+    <p class="status" id="arm-status" role="status" aria-live="polite"></p>
     <div class="row">
       <button class="btn" id="fullscreen" type="button" hidden>Full screen</button>
       <button class="link" id="cancel" type="button">Cancel</button>
     </div>
   </section>
+</div>
 </div>
 <script>
 (() => {
@@ -1620,9 +1628,14 @@ const cam = {
     if (!this.active || v.readyState < 2 || !v.videoWidth) return;
     let d;
     try { this.cx.drawImage(v, 0, 0, 32, 24); d = this.cx.getImageData(0, 0, 32, 24).data; } catch (e) { return; }
-    let s = 0;
-    for (let i = 0; i < d.length; i += 4) s += 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+    let s = 0, raw = 0;
+    for (let i = 0; i < d.length; i += 4) { s += 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]; raw += d[i] + d[i + 1] + d[i + 2]; }
     const now = performance.now();
+    // A live camera never gives two identical frames (sensor noise), so an unchanged picture means the
+    // feed has frozen. In near-total darkness we can't tell, so that counts as live.
+    if (raw !== this.lastRaw || raw < 32 * 24 * 3 * 3) this.changedAt = now;
+    this.lastRaw = raw;
+    if (v.paused && now - (this.playTry || 0) > 1000) { this.playTry = now; v.play().catch(() => {}); }
     if (now - this.startedAt < 600) return; // skip the camera's first, unexposed frames
     this.L = s / (255 * 32 * 24);
     if (this.onSample) this.onSample(now / 1000, this.L);
@@ -2075,6 +2088,7 @@ const ui = {
   panel: document.getElementById('panel'), setup: document.getElementById('card-setup'), arming: document.getElementById('card-arming'),
   arm: document.getElementById('arm'), taps: document.getElementById('taps'), resume: document.getElementById('resume'),
   cancel: document.getElementById('cancel'), status: document.getElementById('status'), fs: document.getElementById('fullscreen'),
+  armStatus: document.getElementById('arm-status'),
   meter: document.getElementById('meter'), fill: document.getElementById('meter-fill'),
 };
 let panelShown = null;
@@ -2099,20 +2113,39 @@ function cameraMessage(e) {
   if (name === 'NotReadableError') return 'Another app is using the camera. Close it and try again.';
   return 'The camera didn’t start. Try again, or use taps instead.';
 }
+const appEl = document.getElementById('app');
 const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+let fsBroken = false, fsWatch = null;
 function canFullscreen() {
-  const el = document.documentElement;
-  if (params.has('nofs') || navigator.standalone || !(el.requestFullscreen || el.webkitRequestFullscreen)) return false;
+  if (fsBroken || params.has('nofs') || navigator.standalone || !(appEl.requestFullscreen || appEl.webkitRequestFullscreen)) return false;
   return !!(document.fullscreenEnabled ?? document.webkitFullscreenEnabled);
 }
 function syncFsButton() { ui.fs.hidden = !canFullscreen() || isFullscreen(); }
 function tryFullscreen() {
   if (!canFullscreen() || isFullscreen()) return;
-  const el = document.documentElement;
-  try { const fn = el.requestFullscreen || el.webkitRequestFullscreen; const p = fn.call(el); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+  try { const fn = appEl.requestFullscreen || appEl.webkitRequestFullscreen; const p = fn.call(appEl); if (p && p.catch) p.catch(() => {}); } catch (e) {}
 }
-document.addEventListener('fullscreenchange', syncFsButton);
-document.addEventListener('webkitfullscreenchange', syncFsButton);
+function exitFullscreen() {
+  try { const fn = document.exitFullscreen || document.webkitExitFullscreen; const p = fn && fn.call(document); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+}
+function onFullscreenChange() {
+  syncFsButton();
+  // after going full screen, make sure the camera is still delivering pictures
+  fsWatch = isFullscreen() && mode === 'lid' && cam.active ? { since: performance.now() } : null;
+}
+// If the camera freezes in full screen, leave full screen so the lid sensor keeps working.
+function checkFsWatch(now) {
+  if (!fsWatch) return;
+  if (!isFullscreen() || !cam.active) { fsWatch = null; return; }
+  const frozen = now - (cam.changedAt || now);
+  if (frozen > 4500) {
+    fsWatch = null; fsBroken = true; exitFullscreen(); syncFsButton();
+    const msg = 'Full screen stopped the camera on this iPad, so it’s turned off. For a full-screen box, add this page to your Home Screen and open it from there.';
+    ui.armStatus.textContent = msg; setStatus(msg);
+  } else if (now - fsWatch.since > 8000) fsWatch = null; // the camera kept running: all good
+}
+document.addEventListener('fullscreenchange', onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 async function startLid() {
   audio.unlock(); keepAwake();
   // On iPad, Safari can't show the camera prompt over a full-screen page, so only go full screen
@@ -2183,7 +2216,7 @@ function frame(now) {
   // iOS can pause audio (a call, Siri, an alert); quietly ask for it back
   if (audio.ac && audio.everUnlocked && audio.ac.state !== 'running' && document.visibilityState === 'visible' && now - lastResumeTry > 2000) { lastResumeTry = now; audio.ac.resume().catch(() => {}); }
   const t0 = performance.now(), st = state.name;
-  update(dt); stepUI(dt); render(dt);
+  update(dt); stepUI(dt); render(dt); checkFsWatch(now);
   const work = performance.now() - t0;
   workMs[st] = (workMs[st] || 0) + work; workN[st] = (workN[st] || 0) + 1; workMax[st] = Math.max(workMax[st] || 0, work);
   requestAnimationFrame(frame);
@@ -2232,7 +2265,8 @@ window.__pandora = {
   stats: () => ({ fps: +fpsShown.toFixed(1), mode, renderScale, Q, wraiths: wraiths.length, sparks: sparks.length, smoke: smoke.length, motes: motes.length, W, H, S: +S.toFixed(2),
     workAvgMs: Object.fromEntries(Object.keys(workN).map(k => [k, +(workMs[k] / workN[k]).toFixed(2)])),
     workMaxMs: Object.fromEntries(Object.keys(workMax).map(k => [k, +workMax[k].toFixed(1)])) }),
-  createSound, LidDetector,
+  createSound, LidDetector, cam,
+  get fullscreen() { return { on: isFullscreen(), element: (document.fullscreenElement || document.webkitFullscreenElement || {}).id || null, broken: fsBroken, watching: !!fsWatch }; },
 };
 
 async function start() {
