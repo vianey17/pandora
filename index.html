@@ -109,7 +109,10 @@ body.no-cursor, body.no-cursor * { cursor: none; }
     <p>Lay the iPad face up in the box, keep the front camera uncovered, and close the lid. You’ll hear a thud when it’s armed.</p>
     <div class="meter" id="meter" role="meter" aria-label="Light at the camera" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="meter-fill"></span></div>
     <p class="hint">Light at the camera. Cover the camera with your hand and the bar should drop to nothing.</p>
-    <div class="row"><button class="link" id="cancel" type="button">Cancel</button></div>
+    <div class="row">
+      <button class="btn" id="fullscreen" type="button" hidden>Full screen</button>
+      <button class="link" id="cancel" type="button">Cancel</button>
+    </div>
   </section>
 </div>
 <script>
@@ -1685,7 +1688,7 @@ function render(dt) {
 const ui = {
   panel: document.getElementById('panel'), setup: document.getElementById('card-setup'), arming: document.getElementById('card-arming'),
   arm: document.getElementById('arm'), taps: document.getElementById('taps'), resume: document.getElementById('resume'),
-  cancel: document.getElementById('cancel'), status: document.getElementById('status'),
+  cancel: document.getElementById('cancel'), status: document.getElementById('status'), fs: document.getElementById('fullscreen'),
   meter: document.getElementById('meter'), fill: document.getElementById('meter-fill'),
 };
 let panelShown = null;
@@ -1694,6 +1697,7 @@ function showCard(which) {
   ui.setup.hidden = which !== 'setup'; ui.arming.hidden = which !== 'arming';
   ui.resume.hidden = !(which === 'setup' && mode !== 'setup');
   ui.arming.style.opacity = '1';
+  syncFsButton();
   document.body.classList.remove('no-cursor');
 }
 function hidePanel() { panelShown = null; ui.panel.hidden = true; }
@@ -1709,17 +1713,25 @@ function cameraMessage(e) {
   if (name === 'NotReadableError') return 'Another app is using the camera. Close it and try again.';
   return 'The camera didn’t start. Try again, or use taps instead.';
 }
-function tryFullscreen() {
-  if (params.has('nofs') || navigator.standalone) return;
+const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+function canFullscreen() {
   const el = document.documentElement;
-  try {
-    if (document.fullscreenElement || document.webkitFullscreenElement) return;
-    const fn = el.requestFullscreen || el.webkitRequestFullscreen;
-    if (fn) { const p = fn.call(el); if (p && p.catch) p.catch(() => {}); }
-  } catch (e) {}
+  if (params.has('nofs') || navigator.standalone || !(el.requestFullscreen || el.webkitRequestFullscreen)) return false;
+  return !!(document.fullscreenEnabled ?? document.webkitFullscreenEnabled);
 }
+function syncFsButton() { ui.fs.hidden = !canFullscreen() || isFullscreen(); }
+function tryFullscreen() {
+  if (!canFullscreen() || isFullscreen()) return;
+  const el = document.documentElement;
+  try { const fn = el.requestFullscreen || el.webkitRequestFullscreen; const p = fn.call(el); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+}
+document.addEventListener('fullscreenchange', syncFsButton);
+document.addEventListener('webkitfullscreenchange', syncFsButton);
 async function startLid() {
-  audio.unlock(); keepAwake(); tryFullscreen();
+  audio.unlock(); keepAwake();
+  // On iPad, Safari can't show the camera prompt over a full-screen page, so only go full screen
+  // here when the camera is already running; otherwise the arming card offers a Full screen button.
+  if (cam.active && cam.live()) tryFullscreen();
   if (ui.arm.disabled) return;
   ui.arm.disabled = true; setStatus('Starting the camera…');
   try { await cam.start(); }
@@ -1741,6 +1753,7 @@ ui.resume.addEventListener('click', () => {
   if (mode === 'lid') { if (state.name === 'sealed' || state.name === 'arming') enterArming(); else det.forceOpen(); }
 });
 ui.cancel.addEventListener('click', () => { cam.stop(); mode = 'setup'; paused = false; enterIdle(false); showCard('setup'); });
+ui.fs.addEventListener('click', tryFullscreen);
 cam.onSample = (t, L) => {
   if (panelShown === 'arming') {
     const v = clamp(L / 0.6, 0, 1);
