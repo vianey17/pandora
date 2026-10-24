@@ -164,18 +164,18 @@ const mix = (n1, n2, t, a = 1) => { const c1 = RGB[n1], c2 = RGB[n2]; return `rg
 const INSCRIPTION = ['ΑΛΛΑ', 'ΓΥΝΗ', 'ΧΕΙΡΕΣΣΙ', 'ΠΙΘΟΥ', 'ΜΕΓΑ', 'ΠΩΜ', 'ΑΦΕΛΟΥΣΑ', 'ΕΣΚΕΔΑΣ'];
 const HOPE_LINES = ['μούνη δ᾽ αὐτόθι Ἐλπὶς ἐν ἀρρήκτοισι δόμοισιν', 'ἔνδον ἔμιμνε πίθου ὑπὸ χείλεσιν'];
 const POOL = [
-  { gr: 'ΝΟΣΟΙ', en: 'Sickness', voice: 'wail', pitch: 1 },
-  { gr: 'ΛΙΜΟΣ', en: 'Famine', voice: 'moan', pitch: 1 },
+  { gr: 'ΝΟΣΟΙ', en: 'Sickness', voice: 'swarm', pitch: 1 },
+  { gr: 'ΛΙΜΟΣ', en: 'Famine', voice: 'choir', pitch: 1 },
   { gr: 'ΦΘΟΝΟΣ', en: 'Envy', voice: 'hiss', pitch: 1 },
-  { gr: 'ΕΡΙΣ', en: 'Strife', voice: 'shriek', pitch: 1 },
-  { gr: 'ΑΠΑΤΗ', en: 'Deceit', voice: 'cackle', pitch: 1 },
-  { gr: 'ΠΟΝΟΣ', en: 'Toil', voice: 'groan', pitch: 1 },
-  { gr: 'ΓΗΡΑΣ', en: 'Old Age', voice: 'wail', pitch: 0.7 },
-  { gr: 'ΦΟΒΟΣ', en: 'Fear', voice: 'shriek', pitch: 1.15 },
-  { gr: 'ΟΙΖΥΣ', en: 'Misery', voice: 'wail', pitch: 1.12 },
-  { gr: 'ΑΤΗ', en: 'Ruin', voice: 'groan', pitch: 0.85 },
-  { gr: 'ΔΕΙΜΟΣ', en: 'Dread', voice: 'moan', pitch: 0.8 },
-  { gr: 'ΑΛΓΕΑ', en: 'Sorrows', voice: 'wail', pitch: 0.9 },
+  { gr: 'ΕΡΙΣ', en: 'Strife', voice: 'scream', pitch: 1 },
+  { gr: 'ΑΠΑΤΗ', en: 'Deceit', voice: 'laugh', pitch: 1 },
+  { gr: 'ΠΟΝΟΣ', en: 'Toil', voice: 'growl', pitch: 1 },
+  { gr: 'ΓΗΡΑΣ', en: 'Old Age', voice: 'wail', pitch: 0.75 },
+  { gr: 'ΦΟΒΟΣ', en: 'Fear', voice: 'shriek', pitch: 1 },
+  { gr: 'ΟΙΖΥΣ', en: 'Misery', voice: 'wail', pitch: 1.1 },
+  { gr: 'ΑΤΗ', en: 'Ruin', voice: 'growl', pitch: 0.85 },
+  { gr: 'ΔΕΙΜΟΣ', en: 'Dread', voice: 'choir', pitch: 0.8 },
+  { gr: 'ΑΛΓΕΑ', en: 'Sorrows', voice: 'scream', pitch: 0.85 },
 ];
 const DEATH = { gr: 'ΘΑΝΑΤΟΣ', en: 'Death', voice: 'death', pitch: 1, death: true };
 const WHISPERS = ['let us out', 'open it', 'just one touch', 'we have waited so long', 'Pandora…', 'no one will know', 'Zeus will never know', 'it is only a seal', 'you want to see inside'];
@@ -186,7 +186,12 @@ const T = { breach: 1.8, crackAt: 0.25, emerge0: 0.4, emergeGap: 0.5, hope: 9.5,
 // lid-sensor timings: the eye gets a beat to see who opened the box before the seal cracks
 const LID = { breach: 2.1, crackAt: 0.6, firstCheck: 0.15, checkEvery: 15, armCheckAfter: 5, armCheckEvery: 8 };
 
-/* ================= sound: everything is synthesized ================= */
+/* ================= sound: everything is synthesized =================
+   No recordings: every scream, whisper and knock is built from oscillators, noise and filters.
+   The horror is in the details: "roughness" (loudness flickering 30-150 times a second, the band the
+   brain reserves for alarm), voices that crack and jump register, a second voice an octave below,
+   ring modulation that makes a throat sound metallic and not quite alive, clusters a semitone apart,
+   and a tone that rises forever without arriving. */
 function createSound(ac, destination) {
   const api = { offset: 0 };
   const now = () => ac.currentTime + 0.025 + api.offset;
@@ -196,6 +201,7 @@ function createSound(ac, destination) {
   const filt = (type, f, q = 1) => { const b = ac.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return b; };
   const osc = (type, f) => { const o = ac.createOscillator(); o.type = type; o.frequency.value = f; return o; };
   const panner = p => { if (ac.createStereoPanner) { const s = ac.createStereoPanner(); s.pan.value = clamp(p, -1, 1); return s; } return gainNode(1); };
+  const mover = (t, dur, p0, p1) => { const p = panner(p0); if (p.pan) { p.pan.setValueAtTime(clamp(p0, -1, 1), t); p.pan.linearRampToValueAtTime(clamp(p1, -1, 1), t + dur); } return p; };
   const hold = (param, t) => { if (param.cancelAndHoldAtTime) param.cancelAndHoldAtTime(t); else { const v = param.value; param.cancelScheduledValues(t); param.setValueAtTime(v, t); } };
   const env = (param, t, a, peak, sus, rel) => {
     param.setValueAtTime(0.0001, t);
@@ -204,10 +210,10 @@ function createSound(ac, destination) {
     param.exponentialRampToValueAtTime(0.0001, t + a + sus + rel);
   };
   const shaperCache = {};
-  const shaper = amt => {
+  const shaper = (amt, os = '2x') => {
     const ws = ac.createWaveShaper();
     if (!shaperCache[amt]) { const n = 1024, c = new Float32Array(n); for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = Math.tanh(x * amt) / Math.tanh(amt); } shaperCache[amt] = c; }
-    ws.curve = shaperCache[amt]; ws.oversample = '2x'; return ws;
+    ws.curve = shaperCache[amt]; ws.oversample = os; return ws;
   };
 
   // master chain: gain -> sub-bass cut (a small speaker can't play it; it would only pump the compressor)
@@ -221,101 +227,439 @@ function createSound(ac, destination) {
   master.connect(hpf); hpf.connect(comp); comp.connect(lim); lim.connect(destination);
   api.master = master;
 
-  // shared noise + a synthetic cavern reverb
+  // white noise, and a smooth random wobble (about 24 new values a second) for jitter and drift
   const nbuf = ac.createBuffer(1, sr * 2, sr);
   { const d = nbuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
-  const irLen = Math.floor(sr * 2.4), ir = ac.createBuffer(2, irLen, sr);
-  for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < irLen; i++) { const t = i / irLen; d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.6) * (i < sr * 0.012 ? i / (sr * 0.012) : 1); } }
-  const verb = ac.createConvolver(); verb.buffer = ir;
-  const verbIn = gainNode(1), verbOut = gainNode(0.5);
-  verbIn.connect(verb); verb.connect(verbOut); verbOut.connect(master);
+  const wbuf = ac.createBuffer(1, sr * 8, sr);
+  { const d = wbuf.getChannelData(0), per = 24, v = []; for (let i = 0; i < 8 * per; i++) v.push(Math.random() * 2 - 1); v.push(v[0], v[1]);
+    for (let i = 0; i < d.length; i++) { const x = (i / sr) * per, k = x | 0, f = x - k, s = f * f * (3 - 2 * f); d[i] = v[k] + (v[k + 1] - v[k]) * s; } }
   const noise = (t, dur) => { const s = ac.createBufferSource(); s.buffer = nbuf; s.loop = true; s.start(t, Math.random() * 1.8); s.stop(t + dur + 0.05); return s; };
+  const wobble = (t, dur, rate = 1) => { const s = ac.createBufferSource(); s.buffer = wbuf; s.loop = true; s.playbackRate.value = rate; s.start(t, Math.random() * 7.5); s.stop(t + dur + 0.3); return s; };
 
-  // Two mix buses. The ambience bus (drone, knocks, whispers) always plays. The show bus is swapped
-  // for a fresh one when the lid closes, so the escaping voices stop the moment the box shuts.
+  // a deep pit of a reverb: 3.2 s, its tail losing brightness as it dies
+  const irLen = Math.floor(sr * 3.2), ir = ac.createBuffer(2, irLen, sr);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = ir.getChannelData(ch); let y = 0;
+    for (let i = 0; i < irLen; i++) { const x = i / irLen; y += (0.9 - 0.78 * x) * ((Math.random() * 2 - 1) - y); d[i] = y * Math.pow(1 - x, 2.4) * (i < sr * 0.015 ? i / (sr * 0.015) : 1); }
+  }
+  const verb = ac.createConvolver(); verb.buffer = ir;
+  const verbIn = gainNode(1), pre = ac.createDelay(0.2), verbOut = gainNode(0.55);
+  pre.delayTime.value = 0.03; verbIn.connect(pre); pre.connect(verb); verb.connect(verbOut); verbOut.connect(master);
+
+  // Mix buses. "bed" holds the drone and never stops. "amb" is everything heard through the shut lid,
+  // "show" is the escape. Each of the last two is swapped for a fresh bus to silence it instantly.
   const makeBus = () => { const dry = gainNode(1), wet = gainNode(1); dry.connect(master); wet.connect(verbIn); return { dry, wet }; };
-  const amb = makeBus();
-  let show = makeBus();
-  const out = (node, dry = 1, wet = 0.3, bus = show) => { const d = gainNode(dry); node.connect(d); d.connect(bus.dry); if (wet > 0) { const w = gainNode(wet); node.connect(w); w.connect(bus.wet); } };
+  const bed = makeBus();
+  let amb = makeBus(), show = makeBus();
+  const busOf = b => (b === 'amb' ? amb : b === 'bed' ? bed : b && b.dry ? b : show);
+  const out = (node, dry = 1, wet = 0.3, bus) => { const B = busOf(bus), d = gainNode(dry); node.connect(d); d.connect(B.dry); if (wet > 0) { const w = gainNode(wet); node.connect(w); w.connect(B.wet); } };
+  const retire = (bus, fade) => {
+    const t = now();
+    for (const n of [bus.dry, bus.wet]) { hold(n.gain, t); n.gain.linearRampToValueAtTime(0, t + fade); }
+    setTimeout(() => { try { bus.dry.disconnect(); bus.wet.disconnect(); } catch (e) {} }, (fade + 0.5) * 1000);
+  };
+  api.cut = (fade = 0.3) => { retire(show, fade); show = makeBus(); pad = null; };
+  api.cutAmb = (fade = 0.15) => { retire(amb, fade); amb = makeBus(); };
+
+  /* ---------------- building blocks ---------------- */
+  const contour = (param, t, dur, f, pts) => {
+    param.setValueAtTime(Math.max(1, f * pts[0][1]), t);
+    for (let i = 1; i < pts.length; i++) param.exponentialRampToValueAtTime(Math.max(1, f * pts[i][1]), t + Math.max(0.001, dur * pts[i][0]));
+  };
+  // multiply a sound by a fast flicker: a sine gives roughness, a square gives a rattle
+  const modAM = (input, t, dur, rate, depth, type = 'sine', drift = 0.25) => {
+    const g = gainNode(1 - depth / 2), o = osc(type, rate), og = gainNode(depth / 2);
+    o.connect(og); og.connect(g.gain);
+    if (drift) { const w = wobble(t, dur, 0.5), wg = gainNode(rate * drift); w.connect(wg); wg.connect(o.frequency); }
+    input.connect(g); o.start(t); o.stop(t + dur + 0.3);
+    return g;
+  };
+  // ring modulation: the voice multiplied by a low tone, metallic and inhuman
+  const ring = (input, t, dur, freq, amount) => {
+    const rm = gainNode(0), car = osc('sine', freq), o = gainNode(1), dry = gainNode(1 - amount), wet = gainNode(amount * 1.4);
+    car.connect(rm.gain); input.connect(rm); rm.connect(wet); input.connect(dry); wet.connect(o); dry.connect(o);
+    car.start(t); car.stop(t + dur + 0.3);
+    return o;
+  };
+  // the mouth: parallel resonances that turn a buzz into a vowel, optionally morphing to another
+  const mouth = (input, list, t, dur, scale = 1, to = null) => {
+    const sum = gainNode(1);
+    list.forEach(([f, q, g], i) => {
+      const bp = filt('bandpass', f * scale, q), gg = gainNode(g);
+      if (to) { bp.frequency.setValueAtTime(f * scale, t); bp.frequency.linearRampToValueAtTime(to[i] * scale, t + dur); }
+      input.connect(bp); bp.connect(gg); gg.connect(sum);
+    });
+    return sum;
+  };
   // ringing modes of a struck body: [frequency, amplitude, decay seconds]
   const modes = (t, bus, list, s = 1, tune = 1) => {
     for (const [f, a, d] of list) { const o = osc('sine', f * tune), og = gainNode(0); env(og.gain, t, 0.001, a * s, 0, d); o.connect(og); og.connect(bus); o.start(t); o.stop(t + d + 0.05); }
   };
-  api.cut = (fade = 0.3) => {
-    const t = ac.currentTime, old = show;
-    for (const n of [old.dry, old.wet]) { hold(n.gain, t); n.gain.linearRampToValueAtTime(0, t + fade); }
-    setTimeout(() => { try { old.dry.disconnect(); old.wet.disconnect(); } catch (e) {} }, (fade + 0.5) * 1000);
-    show = makeBus(); pad = null;
+  // shaped amplitude for a voice: normal, or swelling out of nothing and stopping dead (a scream played backwards)
+  const voiceEnv = (param, t, dur, lvl, o) => {
+    if (o.swell) { param.setValueAtTime(0.0001, t); param.exponentialRampToValueAtTime(lvl, t + dur); param.setValueAtTime(lvl, t + dur); param.linearRampToValueAtTime(0, t + dur + 0.02); }
+    else env(param, t, o.attack || 0.04, lvl, dur * 0.68, dur * 0.32);
   };
 
-  /* --- ambience: a low tritone drone and a cold draught --- */
-  api.droneStart = () => {
+  /* ---------------- the voices of the evils ---------------- */
+  // A scream: two detuned throats, a subharmonic that drifts in and out, pitch jitter, sudden register
+  // breaks, distortion, an open-mouthed vowel, and roughness.
+  api.scream = (o = {}) => {
+    const t = now() + (o.delay || 0), dur = o.dur || 2.4, f0 = o.f0 || rnd(520, 820), lvl = o.level ?? 0.5;
+    const pts = o.contour || [[0, 0.72], [0.1, 1.12], [0.45, 1.02], [0.8, 0.9], [1, 0.6]];
+    const src = gainNode(1);
+    const v1 = osc('sawtooth', f0), v2 = osc('sawtooth', f0), sub = osc('sawtooth', f0 / 2), d2 = rnd(12, 24);
+    v2.detune.value = d2;
+    contour(v1.frequency, t, dur, f0, pts); contour(v2.frequency, t, dur, f0, pts); contour(sub.frequency, t, dur, f0 / 2, pts);
+    const jit = wobble(t, dur, rnd(1.2, 2.5)), jg = gainNode(f0 * 0.04), js = gainNode(f0 * 0.02);
+    jit.connect(jg); jg.connect(v1.frequency); jg.connect(v2.frequency); jit.connect(js); js.connect(sub.frequency);
+    const vib = osc('sine', rnd(5.5, 8)), vg = gainNode(f0 * rnd(0.02, 0.04)); vib.connect(vg); vg.connect(v1.frequency); vg.connect(v2.frequency);
+    if (!o.swell) for (let i = 0, n = Math.random() < 0.65 ? 2 : 1; i < n; i++) { // the voice cracks
+      const tj = t + dur * rnd(0.2, 0.75), c = pick([700, 1200, -500, 500, 300]), hl = rnd(0.07, 0.18);
+      v1.detune.setValueAtTime(c, tj); v1.detune.setValueAtTime(0, tj + hl);
+      v2.detune.setValueAtTime(d2 + c, tj); v2.detune.setValueAtTime(d2, tj + hl);
+    }
+    const g1 = gainNode(0.5), g2 = gainNode(0.45), sg = gainNode(0);
+    sg.gain.setValueAtTime(0, t); sg.gain.setTargetAtTime(rnd(0.35, 0.7), t + dur * rnd(0.15, 0.45), 0.04); sg.gain.setTargetAtTime(0, t + dur * rnd(0.6, 0.9), 0.06);
+    v1.connect(g1); v2.connect(g2); sub.connect(sg); g1.connect(src); g2.connect(src); sg.connect(src);
+    const n = noise(t, dur + 0.2), nh = filt('highpass', 1400, 0.7), ng = gainNode(o.breath ?? 0.3); n.connect(nh); nh.connect(ng); ng.connect(src);
+    const sh = shaper(o.drive || 3.5, o.cheap ? 'none' : '2x'); src.connect(sh);
+    const vow = mouth(sh, [[950, 6, 1], [1650, 8, 0.75], [2850, 10, 0.45], [3900, 12, 0.25]], t, dur, o.formant || 1, [1050, 1500, 2750, 3800]);
+    const rough = modAM(vow, t, dur, rnd(45, 80), o.rough ?? rnd(0.6, 0.9));
+    const amp = gainNode(0); voiceEnv(amp.gain, t, dur, lvl * 2.2, o);
+    rough.connect(amp);
+    let tail = amp;
+    if (o.muffle) { const lp = filt('lowpass', o.muffle, 0.7); amp.connect(lp); tail = lp; }
+    const p = mover(t, dur, o.pan0 ?? 0, o.pan1 ?? (o.pan0 ?? 0));
+    tail.connect(p); out(p, o.dry ?? 0.85, o.wet ?? 0.6, o.bus);
+    [v1, v2, sub, vib].forEach(x => { x.start(t); x.stop(t + dur + 0.2); });
+  };
+  api.swell = (o = {}) => api.scream({ ...o, swell: true, contour: o.contour || [[0, 0.6], [1, 1.25]], dry: o.dry ?? 0.6, wet: o.wet ?? 1.1 });
+
+  // A demonic roar: a rattling throat (vocal fry), a voice an octave below it, heavy distortion, a dark
+  // vowel, and ring modulation so it doesn't sound like any animal on earth.
+  api.growl = (o = {}) => {
+    const t = now() + (o.delay || 0), dur = o.dur || 2.5, f0 = o.f0 || rnd(62, 86), lvl = o.level ?? 0.55;
+    const pts = o.contour || [[0, 0.82], [0.2, 1.12], [0.6, 1.0], [1, 0.7]];
+    const src = gainNode(1);
+    const a = osc('sawtooth', f0), b = osc('square', f0), s = osc('sawtooth', f0 / 2);
+    b.detune.value = rnd(14, 28);
+    contour(a.frequency, t, dur, f0, pts); contour(b.frequency, t, dur, f0, pts); contour(s.frequency, t, dur, f0 / 2, pts);
+    const jit = wobble(t, dur, rnd(0.8, 1.6)), jg = gainNode(f0 * 0.07), js = gainNode(f0 * 0.035);
+    jit.connect(jg); jg.connect(a.frequency); jg.connect(b.frequency); jit.connect(js); js.connect(s.frequency);
+    const ga = gainNode(0.5), gb = gainNode(0.3), gs = gainNode(0.55);
+    a.connect(ga); b.connect(gb); s.connect(gs); ga.connect(src); gb.connect(src); gs.connect(src);
+    const n = noise(t, dur + 0.2), nb = filt('bandpass', 900, 0.8), ng = gainNode(0.5); n.connect(nb); nb.connect(ng); ng.connect(src);
+    const fry = modAM(src, t, dur, rnd(18, 30), 0.9, 'square', 0.35);
+    const sh = shaper(o.drive || 6); fry.connect(sh);
+    const vow = mouth(sh, [[520, 4, 1], [950, 5, 0.75], [2300, 6, 0.4], [3300, 8, 0.2]], t, dur, o.formant || 1, [680, 1120, 2200, 3100]);
+    const lp = filt('lowpass', 3600, 0.6); vow.connect(lp);
+    const rm = ring(lp, t, dur, rnd(28, 42), o.ring ?? 0.35);
+    const amp = gainNode(0); voiceEnv(amp.gain, t, dur, lvl * 1.6, { attack: o.attack || 0.12, swell: o.swell });
+    rm.connect(amp);
+    const p = mover(t, dur, o.pan0 ?? 0, o.pan1 ?? (o.pan0 ?? 0)); amp.connect(p);
+    out(p, o.dry ?? 0.9, o.wet ?? 0.7, o.bus);
+    [a, b, s].forEach(x => { x.start(t); x.stop(t + dur + 0.2); });
+  };
+
+  // Laughter: breathy "ha" syllables, each one lower. Deep and ring-modulated it is a demon; high and
+  // quick, a witch.
+  api.laugh = (o = {}) => {
+    const deep = o.deep ?? true, t = now() + (o.delay || 0), dur = o.dur || 2.6, lvl = o.level ?? 0.55;
+    const f0 = o.f0 || (deep ? rnd(92, 120) : rnd(300, 380));
+    const src = gainNode(1), a = osc('sawtooth', f0), s = osc('sawtooth', f0 / 2), ga = gainNode(0.6), gs = gainNode(deep ? 0.45 : 0);
+    a.connect(ga); s.connect(gs); ga.connect(src); gs.connect(src);
+    const n = noise(t, dur + 0.3), nh = filt('bandpass', 1500, 0.6), hg = gainNode(0); n.connect(nh); nh.connect(hg);
+    const amp = gainNode(0);
+    amp.gain.setValueAtTime(0, t); hg.gain.setValueAtTime(0, t);
+    let tt = 0.06, gap = deep ? rnd(0.28, 0.34) : rnd(0.14, 0.17), k = 0;
+    while (tt < dur - 0.2) {
+      const len = gap * rnd(0.55, 0.7), f = f0 * (1.3 - 0.45 * tt / dur) * rnd(0.94, 1.08), at = t + tt, peak = (k === 0 ? 0.8 : 1) * rnd(0.8, 1);
+      a.frequency.setValueAtTime(f, at); a.frequency.exponentialRampToValueAtTime(f * 0.82, at + len);
+      s.frequency.setValueAtTime(f / 2, at); s.frequency.exponentialRampToValueAtTime(f * 0.41, at + len);
+      hg.gain.setTargetAtTime(0.9 * peak, at, 0.006); hg.gain.setTargetAtTime(0.05, at + 0.045, 0.015);
+      amp.gain.setTargetAtTime(peak, at + 0.035, 0.012); amp.gain.setTargetAtTime(0.0001, at + len, 0.025);
+      tt += gap; gap = Math.max(deep ? 0.16 : 0.1, gap * rnd(0.86, 0.95)); k++;
+    }
+    hg.gain.setTargetAtTime(0, t + dur, 0.03);
+    const sh = shaper(deep ? 4 : 2.2); src.connect(sh);
+    const vf = deep ? [[620, 5, 1], [1050, 6, 0.7], [2400, 8, 0.35]] : [[920, 6, 1], [1500, 8, 0.75], [3000, 10, 0.4]];
+    const vow = mouth(sh, vf, t, dur), asp = mouth(hg, vf, t, dur), mix = gainNode(1);
+    vow.connect(amp); amp.connect(mix); asp.connect(mix);
+    const tail = deep ? ring(mix, t, dur, rnd(30, 38), 0.3) : mix;
+    const p = mover(t, dur, o.pan0 ?? 0, o.pan1 ?? (o.pan0 ?? 0)), lv = gainNode(lvl * 2.2);
+    tail.connect(lv); lv.connect(p);
+    out(p, o.dry ?? 0.85, o.wet ?? (deep ? 0.9 : 0.6), o.bus);
+    [a, s].forEach(x => { x.start(t); x.stop(t + dur + 0.2); });
+  };
+
+  // The damned: voices a semitone and a tritone apart, trembling, sinking together.
+  api.choir = (o = {}) => {
+    const t = now() + (o.delay || 0), dur = o.dur || 3, base = o.base || rnd(140, 185), nv = o.voices || 6, lvl = o.level ?? 0.5;
+    const ratios = [1, 1.0595, 1.4142, 1.5, 1.8877, 2, 2.1189, 2.8284, 0.7071];
+    const sink = o.sink ?? rnd(0.66, 0.82), sum = gainNode(1 / Math.sqrt(nv));
+    for (let i = 0; i < nv; i++) {
+      const f = base * ratios[i % ratios.length] * rnd(0.992, 1.008), v = osc('sawtooth', f);
+      v.frequency.setValueAtTime(f, t); v.frequency.exponentialRampToValueAtTime(f * sink * rnd(0.97, 1.03), t + dur);
+      const vib = osc('sine', rnd(4, 6.5)), vg = gainNode(f * rnd(0.012, 0.03)); vib.connect(vg); vg.connect(v.frequency);
+      const trem = modAM(v, t, dur, rnd(5, 9), rnd(0.2, 0.5), 'sine', 0);
+      const p = panner(rnd(-0.85, 0.85)); trem.connect(p); p.connect(sum);
+      v.start(t); v.stop(t + dur + 0.8); vib.start(t); vib.stop(t + dur + 0.8);
+    }
+    const sh = shaper(1.6, 'none'); sum.connect(sh);
+    const vow = mouth(sh, [[430, 5, 1], [780, 6, 0.7], [2500, 8, 0.25]], t, dur, o.formant || 1, [720, 1150, 2600]);
+    const amp = gainNode(0); env(amp.gain, t, o.attack || 0.45, lvl * 2.4, dur * 0.55, dur * 0.45);
+    vow.connect(amp); out(amp, o.dry ?? 0.7, o.wet ?? 0.9, o.bus);
+  };
+
+  // A banshee: a keening voice that slides like a theremin, a ghost a tritone above it.
+  api.wail = (o = {}) => {
+    const t = now() + (o.delay || 0), dur = o.dur || 2.8, f0 = o.f0 || rnd(780, 1100), lvl = o.level ?? 0.4;
+    const pts = o.contour || [[0, 0.7], [0.25, 1.1], [0.5, 0.92], [0.75, 1.18], [1, 0.55]];
+    const src = gainNode(1);
+    [[1, 0.6, 0], [1.4142, 0.28, 15]].forEach(([r, g, det]) => {
+      const v = osc('sawtooth', f0 * r); v.detune.value = det; contour(v.frequency, t, dur, f0 * r, pts);
+      const vib = osc('sine', rnd(4.5, 6)), vg = gainNode(f0 * r * 0.035); vib.connect(vg); vg.connect(v.frequency);
+      const w = wobble(t, dur, 0.8), wg = gainNode(f0 * r * 0.03); w.connect(wg); wg.connect(v.frequency);
+      const gg = gainNode(g); v.connect(gg); gg.connect(src);
+      v.start(t); v.stop(t + dur + 0.2); vib.start(t); vib.stop(t + dur + 0.2);
+    });
+    const n = noise(t, dur + 0.2), nh = filt('highpass', 2000, 0.7), ng = gainNode(0.2); n.connect(nh); nh.connect(ng); ng.connect(src);
+    const sh = shaper(1.8); src.connect(sh);
+    const vow = mouth(sh, [[400, 6, 0.8], [1000, 8, 0.7], [2700, 10, 0.5], [3600, 12, 0.3]], t, dur, o.formant || 1, [750, 1800, 2900, 3800]);
+    const rough = modAM(vow, t, dur, rnd(32, 48), 0.35);
+    const amp = gainNode(0); env(amp.gain, t, 0.25, lvl * 2.2, dur * 0.6, dur * 0.4);
+    rough.connect(amp);
+    const p = mover(t, dur, o.pan0 ?? 0, o.pan1 ?? 0); amp.connect(p); out(p, o.dry ?? 0.75, o.wet ?? 0.85, o.bus);
+  };
+
+  // Envy: a serpent's hiss with a rattle in it, and something growling underneath.
+  api.hiss = (o = {}) => {
+    const t = now() + (o.delay || 0), dur = o.dur || 2.6, lvl = o.level ?? 0.5;
+    const n = noise(t, dur + 0.2), hb = filt('bandpass', 4200, 2.2), hp = filt('highpass', 2500, 0.7), hg = gainNode(0);
+    hb.frequency.setValueAtTime(3200, t); hb.frequency.linearRampToValueAtTime(5600, t + dur);
+    hg.gain.setValueAtTime(0.0001, t); hg.gain.exponentialRampToValueAtTime(1, t + 0.25); hg.gain.setValueAtTime(1, t + dur * 0.7); hg.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    n.connect(hb); hb.connect(hp); hp.connect(hg);
+    const rat = modAM(hg, t, dur, rnd(13, 19), 0.75, 'square', 0.15);
+    const p = mover(t, dur, o.pan0 ?? 0, o.pan1 ?? 0), lv = gainNode(lvl * 1.4);
+    rat.connect(lv); lv.connect(p); out(p, 0.85, 0.5, o.bus);
+    api.growl({ delay: (o.delay || 0) + 0.2, dur: dur * 0.85, f0: rnd(70, 90), level: lvl * 0.55, pan0: o.pan0, pan1: o.pan1, bus: o.bus, ring: 0.5 });
+  };
+
+  // Sickness: a swarm of flies circling your head.
+  api.swarm = (o = {}) => {
+    const t = now() + (o.delay || 0), dur = o.dur || 3, lvl = o.level ?? 0.45, nf = o.flies || 9;
+    const sum = gainNode(1 / Math.sqrt(nf));
+    for (let i = 0; i < nf; i++) {
+      const f = rnd(170, 330), v = osc('sawtooth', f), w = wobble(t, dur, rnd(0.6, 1.4)), wg = gainNode(f * rnd(0.06, 0.15));
+      w.connect(wg); wg.connect(v.frequency);
+      const am = gainNode(0), t0 = t + rnd(0, dur * 0.35), t1 = t0 + rnd(dur * 0.4, dur * 0.65);
+      am.gain.setValueAtTime(0, t); am.gain.setTargetAtTime(rnd(0.5, 1), t0, 0.25); am.gain.setTargetAtTime(0, t1, 0.3);
+      const p = mover(t, dur, rnd(-1, 1), rnd(-1, 1));
+      v.connect(am); am.connect(p); p.connect(sum);
+      v.start(t); v.stop(t + dur + 0.3);
+    }
+    const hp = filt('highpass', 220, 0.7), bp = filt('bandpass', 1200, 0.5), amp = gainNode(0);
+    env(amp.gain, t, 0.3, lvl * 2.5, dur * 0.6, dur * 0.4);
+    sum.connect(hp); hp.connect(bp); bp.connect(amp); out(amp, 0.9, 0.35, o.bus);
+  };
+
+  // Death: a backwards scream sucked into a roar an octave below the rest, the damned sinking beneath
+  // it, a blow like a coffin lid, and a cracked funeral bell.
+  api.death = (o = {}) => {
+    const dur = o.dur || 3.6, d0 = o.delay || 0;
+    api.swell({ delay: d0, dur: 0.9, f0: rnd(500, 640), level: 0.32, bus: o.bus });
+    api.growl({ delay: d0 + 0.85, dur, f0: rnd(46, 54), level: 0.75, drive: 8, ring: 0.45, formant: 0.82, attack: 0.05, wet: 1.0, bus: o.bus });
+    api.choir({ delay: d0 + 0.9, dur: dur + 0.4, base: rnd(98, 115), voices: 7, level: 0.42, sink: 0.6, attack: 0.3, bus: o.bus });
+    api.boom(d0 + 0.85, 0.9, o.bus);
+    api.bell(d0 + 0.9 + dur * 0.55, rnd(105, 118), 0.3, o.bus);
+  };
+  // the damned, all screaming at once
+  api.crowd = (o = {}) => {
+    const nc = o.voices || 6, d0 = o.delay || 0, dur = o.dur || 2.2;
+    for (let i = 0; i < nc; i++) {
+      const pan = -0.9 + 1.8 * (i / Math.max(1, nc - 1)) + rnd(-0.1, 0.1);
+      api.scream({ delay: d0 + rnd(0, 0.25), dur: dur * rnd(0.8, 1.15), f0: rnd(380, 1050), level: (o.level ?? 0.2) * rnd(0.7, 1), pan0: pan * 0.3, pan1: pan, formant: rnd(0.85, 1.2), rough: rnd(0.5, 0.9), cheap: true, bus: o.bus });
+    }
+  };
+  api.boom = (delay = 0, s = 1, bus) => {
+    const t = now() + delay, b = gainNode(1);
+    const o = osc('sine', 110); o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.8);
+    const og = gainNode(0); env(og.gain, t, 0.005, 0.7 * s, 0.05, 1.1); const sh = shaper(5);
+    o.connect(og); og.connect(sh); sh.connect(b); o.start(t); o.stop(t + 1.5);
+    const n = noise(t, 1.2), lp = filt('lowpass', 900, 0.7), ng = gainNode(0); env(ng.gain, t, 0.003, 0.6 * s, 0.03, 0.8); n.connect(lp); lp.connect(ng); ng.connect(b);
+    out(b, 0.9, 0.6, bus);
+  };
+  api.bell = (delay, f0, amp = 0.3, bus) => {
+    const t = now() + delay, b = gainNode(1);
+    modes(t, b, [[f0 * 0.5, amp * 0.6, 4], [f0, amp, 3.5], [f0 * 1.183, amp * 0.5, 3], [f0 * 1.506, amp * 0.45, 2.6], [f0 * 2, amp * 0.35, 2.2], [f0 * 2.514, amp * 0.25, 1.6], [f0 * 3.011, amp * 0.18, 1.2], [f0 * 4.166, amp * 0.1, 0.8]]);
+    modes(t, b, [[f0 * 1.007, amp * 0.6, 3.2], [f0 * 2.011, amp * 0.25, 2]]); // a second, mistuned strike: the bell is cracked
+    out(b, 0.6, 0.9, bus);
+  };
+
+  // what each evil sounds like as it escapes
+  api.voice = (type, dur, pan0 = 0, pan1 = 0, pitch = 1) => {
+    const o = { dur, pan0, pan1 };
+    switch (type) {
+      case 'scream': api.scream({ ...o, f0: rnd(520, 760) * pitch, level: 0.42 }); break;
+      case 'shriek': api.scream({ ...o, f0: rnd(850, 1150) * pitch, level: 0.34, formant: 1.18, rough: 0.85, contour: [[0, 0.8], [0.08, 1.2], [0.5, 1.08], [1, 0.7]] }); break;
+      case 'growl': api.growl({ ...o, f0: rnd(62, 84) * pitch, level: 0.66 }); break;
+      case 'laugh': { const deep = Math.random() < 0.6; api.laugh({ ...o, deep, level: deep ? 1.15 : 0.7 }); break; }
+      case 'choir': api.choir({ ...o, base: rnd(130, 175) * pitch, level: 0.41 }); break;
+      case 'wail': api.wail({ ...o, f0: rnd(780, 1080) * pitch, level: 0.6 }); break;
+      case 'hiss': api.hiss(o); break;
+      case 'swarm': api.swarm({ ...o, level: 0.31 }); break;
+      case 'death': api.death(o); break;
+    }
+    api.whoosh(dur * 0.5, Math.min(1.1, dur * 0.4), pan1, type === 'death' ? 0.5 : 0.36);
+  };
+
+  /* ---------------- inside the shut box ---------------- */
+  // A drone: a low cluster grinding a semitone apart that swells like something huge breathing in its
+  // sleep, a cold draught, and an endlessly rising tone underneath.
+  api.droneStart = (sync = false) => {
     if (drone) return;
-    const t = now();
-    const bus = gainNode(0);
-    bus.gain.setValueAtTime(0, t); bus.gain.linearRampToValueAtTime(1, t + 2.5);
-    const lp = filt('lowpass', 620, 0.9);
-    // A and E-flat a tritone apart, slowly beating; the upper octave carries it on a small speaker
-    const o1 = osc('sawtooth', 55), o2 = osc('sawtooth', 55.55), o3 = osc('sawtooth', 110.4), o4 = osc('sawtooth', 155.56);
-    const g1 = gainNode(0.018), g3 = gainNode(0.022);
-    o1.connect(g1); o2.connect(g1); o3.connect(g3); o4.connect(g3); g1.connect(lp); g3.connect(lp);
-    const lfo = osc('sine', 0.07), lfoG = gainNode(160); lfo.connect(lfoG); lfoG.connect(lp.frequency);
+    const t = now(), bus = gainNode(0);
+    bus.gain.setValueAtTime(0, t); bus.gain.linearRampToValueAtTime(1, t + 3);
+    const lp = filt('lowpass', 560, 0.9);
+    [[55, 0.016], [58.27, 0.014], [110.4, 0.016], [116, 0.012], [155.56, 0.014]].forEach(([f, g]) => { const o = osc('sawtooth', f), gg = gainNode(g); o.connect(gg); gg.connect(lp); o.start(t); });
+    const lfo = osc('sine', 0.07), lfoG = gainNode(180); lfo.connect(lfoG); lfoG.connect(lp.frequency); lfo.start(t);
+    const sleep = modAM(lp, t, 1e6, 0.11, 0.6, 'sine', 0); sleep.connect(bus);
     const wn = ac.createBufferSource(); wn.buffer = nbuf; wn.loop = true;
     const wbp = filt('bandpass', 520, 0.8), wg = gainNode(0.035);
     const wl = osc('sine', 0.045), wlG = gainNode(260); wl.connect(wlG); wlG.connect(wbp.frequency);
     const gust = osc('sine', 0.11), gustG = gainNode(0.02); gust.connect(gustG); gustG.connect(wg.gain);
-    wn.connect(wbp); wbp.connect(wg);
-    lp.connect(bus); wg.connect(bus);
-    out(bus, 1, 0.25, amb);
-    [o1, o2, o3, o4, lfo, wl, gust].forEach(o => o.start(t)); wn.start(t);
+    wn.connect(wbp); wbp.connect(wg); wg.connect(bus);
+    [wl, gust].forEach(o => o.start(t)); wn.start(t);
+    out(bus, 1, 0.3, bed);
     drone = bus;
+    const rise = () => { const s = ac.createBufferSource(); s.buffer = shepard(); s.loop = true; const g = gainNode(0); g.gain.setValueAtTime(0, now()); g.gain.linearRampToValueAtTime(0.06, now() + 6); s.connect(g); g.connect(bus); s.start(now()); };
+    if (sync) rise(); else setTimeout(rise, 400); // computed after the tap, so arming stays snappy
+  };
+  // Shepard-Risset glissando: octave-spaced tones gliding up under a fixed bell-shaped loudness curve,
+  // so the pitch keeps rising and never gets anywhere. One 24 s loop that joins seamlessly.
+  const shepard = () => {
+    const SR = 22050, T = 24, len = SR * T, b = ac.createBuffer(1, len, SR), d = b.getChannelData(0);
+    const N = 9, fb = 25, center = Math.log2(fb) + 4, sigma = 1.15, step = Math.pow(2, 1 / len);
+    let ph = 0;
+    for (let k = 0; k < N; k++) {
+      let f = fb * 2 ** k, p = ph, a = 0;
+      ph += (2 * Math.PI * fb * 2 ** k * T) / Math.LN2; // where the next partial must start so the loop joins
+      for (let i = 0; i < len; i++) {
+        if ((i & 63) === 0) { const z = (Math.log2(f) - center) / sigma; a = Math.exp(-0.5 * z * z); }
+        p += (2 * Math.PI * f) / SR; f *= step;
+        d[i] += a * Math.sin(p);
+      }
+    }
+    let pk = 0; for (let i = 0; i < len; i++) pk = Math.max(pk, Math.abs(d[i]));
+    for (let i = 0; i < len; i++) d[i] *= 0.9 / pk;
+    return b;
   };
   api.droneLevel = (v, time = 1.5) => { if (!drone) return; const t = now(); hold(drone.gain, t); drone.gain.exponentialRampToValueAtTime(Math.max(0.0001, v), t + time); };
 
-  /* --- something knocking from inside --- */
-  api.knock = (delay = 0, s = 1) => {
-    const t = now() + delay, bus = gainNode(1);
-    // knuckle on a hollow box: a short thump, the box's ringing modes, and a click
-    const o = osc('sine', 180); o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(90, t + 0.1);
-    const og = gainNode(0); env(og.gain, t, 0.003, 0.22 * s, 0, 0.14);
-    const sh = shaper(3); o.connect(og); og.connect(sh); sh.connect(bus);
-    o.start(t); o.stop(t + 0.3);
-    modes(t, bus, [[310, 0.9, 0.2], [520, 0.6, 0.13], [760, 0.36, 0.09], [1130, 0.18, 0.05]], s, rnd(0.94, 1.06));
-    const n2 = noise(t, 0.1), bp2 = filt('bandpass', 2000, 0.9), n2g = gainNode(0); env(n2g.gain, t, 0.001, 0.4 * s, 0, 0.015);
-    n2.connect(bp2); bp2.connect(n2g); n2g.connect(bus);
-    const p = panner(rnd(-0.2, 0.2)); bus.connect(p); out(p, 0.9, 0.45, amb);
+  // A knuckle on the lid; a heavy one is a fist, and the whole box rattles.
+  api.knock = (delay = 0, s = 1, heavy = false) => {
+    const t = now() + delay, b = gainNode(1), f = heavy ? 150 : 180;
+    const o = osc('sine', f); o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(heavy ? 60 : 90, t + 0.1);
+    const og = gainNode(0); env(og.gain, t, 0.003, (heavy ? 0.4 : 0.22) * s, 0, heavy ? 0.2 : 0.14);
+    const sh = shaper(heavy ? 5 : 3); o.connect(og); og.connect(sh); sh.connect(b);
+    o.start(t); o.stop(t + 0.35);
+    modes(t, b, [[310, 0.9, 0.2], [520, 0.6, 0.13], [760, 0.36, 0.09], [1130, 0.18, 0.05]], s * (heavy ? 1.25 : 1), rnd(0.94, 1.06) * (heavy ? 0.9 : 1));
+    const n2 = noise(t, 0.12), bp2 = filt('bandpass', heavy ? 1200 : 2000, 0.9), n2g = gainNode(0); env(n2g.gain, t, 0.001, (heavy ? 0.7 : 0.4) * s, 0, heavy ? 0.04 : 0.015);
+    n2.connect(bp2); bp2.connect(n2g); n2g.connect(b);
+    if (heavy) { const n3 = noise(t, 0.3), bp3 = filt('bandpass', 420, 1.4), g3 = gainNode(0); env(g3.gain, t, 0.002, 0.8 * s, 0, 0.18); n3.connect(bp3); bp3.connect(g3); g3.connect(b); }
+    const p = panner(rnd(-0.2, 0.2)); b.connect(p); out(p, 0.9, 0.45, 'amb');
   };
 
-  /* --- whispering: formant-filtered breath in syllables --- */
-  api.whisper = (pan = 0, dur = 1.8) => {
-    const t = now();
-    const src = noise(t, dur + 0.4);
-    const hp = filt('highpass', 650, 0.7), f2 = filt('bandpass', 1500, 7), f3 = filt('bandpass', 2700, 9), sib = filt('highpass', 4800, 0.7);
-    const g2 = gainNode(1.3), g3 = gainNode(0.9), gs = gainNode(0), amp = gainNode(0);
-    src.connect(hp); hp.connect(f2); hp.connect(f3); f2.connect(g2); f3.connect(g3); g2.connect(amp); g3.connect(amp);
-    src.connect(sib); sib.connect(gs); gs.connect(amp);
-    amp.gain.setValueAtTime(0.0001, t);
-    let tt = t;
-    while (tt < t + dur) {
-      const sd = rnd(0.09, 0.17), peak = rnd(0.35, 1);
-      amp.gain.setTargetAtTime(peak, tt, 0.018);
-      amp.gain.setTargetAtTime(peak * 0.12, tt + sd * 0.6, 0.03);
-      f2.frequency.setTargetAtTime(rnd(900, 2100), tt, 0.02);
-      f3.frequency.setTargetAtTime(rnd(2300, 3300), tt, 0.02);
-      if (Math.random() < 0.22) { gs.gain.setTargetAtTime(rnd(0.25, 0.5), tt, 0.01); gs.gain.setTargetAtTime(0, tt + sd * 0.8, 0.02); }
-      tt += sd + (Math.random() < 0.18 ? rnd(0.08, 0.2) : 0);
+  // Something big breathing in the dark: a rasping inhale, then an exhale that rattles in its throat.
+  api.breath = (o = {}) => {
+    const t = now() + (o.delay || 0), inh = o.inhale || rnd(1.0, 1.5), ex = o.exhale || rnd(1.5, 2.3), lvl = o.level ?? 0.5;
+    const n1 = noise(t, inh + 0.1), b1 = filt('bandpass', 900, 1.3), b1b = filt('bandpass', 2400, 3), g1 = gainNode(0);
+    b1.frequency.setValueAtTime(700, t); b1.frequency.exponentialRampToValueAtTime(1700, t + inh);
+    g1.gain.setValueAtTime(0.0001, t); g1.gain.exponentialRampToValueAtTime(lvl * 1.55, t + inh * 0.85); g1.gain.exponentialRampToValueAtTime(0.0001, t + inh + 0.08);
+    n1.connect(b1); n1.connect(b1b); b1.connect(g1); b1b.connect(g1);
+    const te = t + inh + rnd(0.05, 0.25), n2 = noise(te, ex + 0.1), mix = gainNode(1);
+    mouth(n2, [[600, 3, 1], [1150, 4, 0.7], [2500, 6, 0.3]], te, ex, 1, [500, 1000, 2300]).connect(mix);
+    const gf = rnd(58, 75), gr = osc('sawtooth', gf), grs = shaper(4), grb = filt('bandpass', 420, 1.2), grg = gainNode(o.growl ?? 0.35);
+    gr.frequency.setValueAtTime(gf, te); gr.frequency.exponentialRampToValueAtTime(gf * 0.8, te + ex);
+    gr.connect(grs); grs.connect(grb); grb.connect(grg); grg.connect(mix);
+    const rat = modAM(mix, te, ex, rnd(24, 38), 0.8, 'square', 0.3);
+    const g2 = gainNode(0); g2.gain.setValueAtTime(0.0001, te); g2.gain.exponentialRampToValueAtTime(lvl * 2.1, te + 0.18); g2.gain.exponentialRampToValueAtTime(0.0001, te + ex);
+    rat.connect(g2);
+    const p = panner(o.pan ?? rnd(-0.25, 0.25)); g1.connect(p); g2.connect(p); out(p, 0.85, 0.35, 'amb');
+    gr.start(te); gr.stop(te + ex + 0.1);
+  };
+
+  // Claws dragged across the inside of the lid: stick-slip clicks through the box's resonances.
+  api.scratch = (o = {}) => {
+    const t = now() + (o.delay || 0), dur = o.dur || rnd(0.45, 1.3), lvl = o.level ?? 0.55;
+    const len = Math.max(1, Math.floor(sr * dur)), buf = ac.createBuffer(1, len, sr), d = buf.getChannelData(0);
+    let i = 0, per = rnd(0.005, 0.012);
+    while (i < len) {
+      const a = (0.25 + 0.75 * Math.random()) * Math.pow(Math.sin(Math.PI * Math.min(1, i / len)), 0.6), w = 12 + ((Math.random() * 30) | 0);
+      for (let k = 0; k < w && i + k < len; k++) d[i + k] += a * (Math.random() * 2 - 1) * Math.exp(-k / (w * 0.35));
+      i += Math.max(8, Math.floor(sr * per * rnd(0.5, 1.6))); per = clamp(per * rnd(0.94, 1.06), 0.003, 0.02);
     }
-    amp.gain.setTargetAtTime(0.0001, t + dur, 0.06);
-    const lvl = gainNode(0.68), p = panner(pan);
-    amp.connect(lvl); lvl.connect(p); out(p, 0.8, 0.7, amb);
+    const s = ac.createBufferSource(); s.buffer = buf;
+    const f1 = rnd(2400, 4200), b1 = filt('bandpass', f1, 1.8), b2 = filt('bandpass', rnd(650, 900), 3), b3 = filt('highpass', 5000, 0.7);
+    b1.frequency.setValueAtTime(f1, t); b1.frequency.linearRampToValueAtTime(f1 * rnd(0.7, 1.3), t + dur);
+    const g = gainNode(lvl * 12), gb = gainNode(0.6), gh = gainNode(0.35);
+    s.connect(b1); s.connect(b2); s.connect(b3); b1.connect(g); b2.connect(gb); gb.connect(g); b3.connect(gh); gh.connect(g);
+    const pan = o.pan ?? rnd(-0.6, 0.6), p = mover(t, dur, pan, pan + rnd(-0.4, 0.4)); g.connect(p); out(p, 0.9, 0.3, 'amb');
+    s.start(t);
   };
 
-  /* --- an indrawn breath when the eye notices you --- */
+  // A heartbeat, lub-dub. The click and the knock of it carry on a small speaker.
+  api.heartbeat = (delay = 0, s = 1) => {
+    const t = now() + delay;
+    [[0, 1], [0.17, 0.75]].forEach(([dt, a]) => {
+      const tt = t + dt, b = gainNode(1);
+      const o = osc('sine', 230); o.frequency.setValueAtTime(230, tt); o.frequency.exponentialRampToValueAtTime(110, tt + 0.11);
+      const og = gainNode(0); env(og.gain, tt, 0.004, 0.32 * a * s, 0, 0.14); const sh = shaper(6); o.connect(og); og.connect(sh); sh.connect(b);
+      const n = noise(tt, 0.12), bp = filt('bandpass', 420, 1.6), ng = gainNode(0); env(ng.gain, tt, 0.002, 4 * a * s, 0, 0.08); n.connect(bp); bp.connect(ng); ng.connect(b);
+      const lp = filt('lowpass', 1000, 0.7); b.connect(lp);
+      o.start(tt); o.stop(tt + 0.25);
+      out(lp, 0.9, 0.25, 'amb');
+    });
+  };
+
+  // Whispering: noise shaped into syllables (a consonant hiss, then a vowel), so it sounds like words
+  // you can almost make out. Optionally swelling backwards out of nothing.
+  const VOWELS = [[730, 1090, 2440], [530, 1840, 2480], [300, 2290, 3010], [570, 840, 2410], [320, 870, 2240]];
+  api.whisper = (pan = 0, dur = 1.8, o = {}) => {
+    const t = now() + (o.delay || 0), sc = o.formant || rnd(0.9, 1.15);
+    const src = noise(t, dur + 0.4);
+    const f1 = filt('bandpass', 700, 5), f2 = filt('bandpass', 1200, 7), f3 = filt('bandpass', 2500, 9), cons = filt('bandpass', 5000, 1.4);
+    const v1 = gainNode(1), v2 = gainNode(0.75), v3 = gainNode(0.4), vg = gainNode(0), cg = gainNode(0), mix = gainNode(1);
+    src.connect(f1); src.connect(f2); src.connect(f3); f1.connect(v1); f2.connect(v2); f3.connect(v3); v1.connect(vg); v2.connect(vg); v3.connect(vg);
+    src.connect(cons); cons.connect(cg); vg.connect(mix); cg.connect(mix);
+    vg.gain.setValueAtTime(0, t); cg.gain.setValueAtTime(0, t);
+    let tt = t + 0.02;
+    while (tt < t + dur) {
+      const v = pick(VOWELS), syl = rnd(0.11, 0.22), stress = Math.random() < 0.3 ? 1 : rnd(0.45, 0.75);
+      if (Math.random() < 0.7) {
+        const ct = rnd(0.03, 0.09); cons.frequency.setValueAtTime(pick([6500, 4800, 3300, 2500]), tt);
+        cg.gain.setTargetAtTime(stress * rnd(0.5, 0.9), tt, 0.006); cg.gain.setTargetAtTime(0, tt + ct, 0.012); tt += ct * 0.75;
+      }
+      f1.frequency.setTargetAtTime(v[0] * sc, tt, 0.012); f2.frequency.setTargetAtTime(v[1] * sc, tt, 0.012); f3.frequency.setTargetAtTime(v[2] * sc, tt, 0.012);
+      vg.gain.setTargetAtTime(stress, tt, 0.018); vg.gain.setTargetAtTime(stress * 0.12, tt + syl * 0.7, 0.03);
+      tt += syl + (Math.random() < 0.2 ? rnd(0.08, 0.22) : 0);
+    }
+    vg.gain.setTargetAtTime(0, t + dur, 0.04); cg.gain.setTargetAtTime(0, t + dur, 0.02);
+    const lv = gainNode((o.level ?? 0.75) * 0.9); mix.connect(lv);
+    let tail = lv;
+    if (o.swell) { const sw = gainNode(0); sw.gain.setValueAtTime(0.0001, t); sw.gain.exponentialRampToValueAtTime(1, t + dur); sw.gain.setValueAtTime(1, t + dur); sw.gain.linearRampToValueAtTime(0, t + dur + 0.02); lv.connect(sw); tail = sw; }
+    const p = mover(t, dur, pan, o.pan1 ?? pan); tail.connect(p); out(p, o.dry ?? 0.8, o.wet ?? 0.65, o.bus || 'amb');
+  };
+
+  /* ---------------- the seal giving way ---------------- */
+  // a deep, rasping intake of breath: the thing behind the seal has noticed you
   api.inhale = () => {
-    const t = now(), n = noise(t, 0.8), bp = filt('bandpass', 900, 1.6), gn = gainNode(0);
-    bp.frequency.setValueAtTime(700, t); bp.frequency.exponentialRampToValueAtTime(2300, t + 0.5);
-    gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(0.55, t + 0.32); gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.62);
-    n.connect(bp); bp.connect(gn); out(gn, 0.7, 0.6);
+    const t = now(), n = noise(t, 1.0), bp = filt('bandpass', 600, 1.4), bp2 = filt('bandpass', 1800, 3), gn = gainNode(0);
+    bp.frequency.setValueAtTime(450, t); bp.frequency.exponentialRampToValueAtTime(1600, t + 0.55);
+    gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(1.1, t + 0.45); gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+    n.connect(bp); n.connect(bp2); bp.connect(gn); bp2.connect(gn);
+    out(modAM(gn, t, 0.8, rnd(30, 45), 0.6, 'square', 0.2), 0.8, 0.6);
   };
 
   /* --- bronze cracking --- */
@@ -338,30 +682,26 @@ function createSound(ac, destination) {
     out(bus, 0.9, 0.5);
   };
 
-  /* --- the pressure building under the lid --- */
+  /* --- the pressure building under the lid, and the damned pressing against it --- */
   api.rumble = dur => {
     const t = now(), bus = gainNode(0.0001);
     bus.gain.setValueAtTime(0.0001, t); bus.gain.exponentialRampToValueAtTime(0.55, t + dur); bus.gain.setTargetAtTime(0.0001, t + dur, 0.05);
     const n = noise(t, dur + 0.5), lp = filt('lowpass', 200, 2.5);
     lp.frequency.setValueAtTime(200, t); lp.frequency.exponentialRampToValueAtTime(2600, t + dur);
     const sh = shaper(2.5); n.connect(lp); lp.connect(sh); sh.connect(bus);
-    // a rising whine of pressure, pitched where small speakers are loudest
     const rs = osc('sawtooth', 300); rs.frequency.setValueAtTime(300, t); rs.frequency.exponentialRampToValueAtTime(1250, t + dur);
     const rbp = filt('bandpass', 900, 2), rg = gainNode(0.0001);
     rg.gain.setValueAtTime(0.0001, t); rg.gain.exponentialRampToValueAtTime(0.16, t + dur);
     rs.connect(rbp); rbp.connect(rg); rg.connect(bus); rs.start(t); rs.stop(t + dur + 0.3);
     const o = osc('sawtooth', 40); o.frequency.setValueAtTime(40, t); o.frequency.exponentialRampToValueAtTime(82, t + dur);
     const olp = filt('lowpass', 420, 1), og = gainNode(0.5); o.connect(olp); olp.connect(og); og.connect(bus);
-    const gr = osc('sawtooth', 92); gr.frequency.setValueAtTime(92, t); gr.frequency.exponentialRampToValueAtTime(170, t + dur);
-    const vib = osc('sine', 5.2), vibG = gainNode(4); vib.connect(vibG); vibG.connect(gr.frequency);
-    const f1 = filt('bandpass', 420, 4), f2 = filt('bandpass', 900, 6), gg = gainNode(0.0001);
-    gg.gain.setValueAtTime(0.0001, t); gg.gain.exponentialRampToValueAtTime(0.5, t + dur);
-    gr.connect(f1); gr.connect(f2); f1.connect(gg); f2.connect(gg); gg.connect(bus);
-    [o, gr, vib].forEach(x => { x.start(t); x.stop(t + dur + 0.4); });
+    o.start(t); o.stop(t + dur + 0.4);
     out(bus, 0.85, 0.35);
+    for (let i = 0; i < 4; i++) api.swell({ dur: dur + 0.05, f0: rnd(330, 520) * (1 + i * 0.12), level: 0.15, contour: [[0, 0.6], [0.7, 1.0], [1, 1.35]], pan0: rnd(-0.6, 0.6), pan1: rnd(-0.9, 0.9), wet: 0.9, dry: 0.8, rough: 0.8, cheap: true });
+    api.growl({ dur: dur + 0.1, f0: rnd(55, 65), level: 0.4, swell: true, contour: [[0, 0.8], [1, 1.25]] });
   };
 
-  /* --- the lid bursts --- */
+  /* --- the seal bursts, and everything inside screams --- */
   api.burst = () => {
     const t = now(), bus = gainNode(1);
     const o = osc('sine', 150); o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.9);
@@ -370,13 +710,11 @@ function createSound(ac, destination) {
     const o2 = osc('square', 78); o2.frequency.setValueAtTime(78, t); o2.frequency.exponentialRampToValueAtTime(40, t + 0.8);
     const o2lp = filt('lowpass', 700, 0.7), o2g = gainNode(0); env(o2g.gain, t, 0.004, 0.18, 0, 0.9);
     o2.connect(o2lp); o2lp.connect(o2g); o2g.connect(bus); o2.start(t); o2.stop(t + 1.2);
-    // the crunch: distorted mid-band noise that carries on a small speaker
     const cn = noise(t, 0.9), cbp = filt('bandpass', 750, 0.8), csh = shaper(3), cg = gainNode(0);
     env(cg.gain, t, 0.002, 1.1, 0.06, 0.6); cn.connect(cbp); cbp.connect(csh); csh.connect(cg); cg.connect(bus);
     const n = noise(t, 2.6), lp = filt('lowpass', 7000, 0.6), ng = gainNode(0);
     lp.frequency.setValueAtTime(7000, t); lp.frequency.exponentialRampToValueAtTime(320, t + 1.8);
     env(ng.gain, t, 0.003, 1.0, 0.08, 2.2); n.connect(lp); lp.connect(ng); ng.connect(bus);
-    // the bronze lid ringing as it shatters (inharmonic, like a struck plate)
     const f0 = rnd(280, 330);
     modes(t, bus, [[f0, 0.34, 1.8], [f0 * 2.32, 0.22, 1.3], [f0 * 3.73, 0.15, 1.0], [f0 * 5.11, 0.1, 0.7], [f0 * 6.83, 0.07, 0.5], [f0 * 8.9, 0.05, 0.35]]);
     for (let i = 0; i < 26; i++) {
@@ -389,6 +727,8 @@ function createSound(ac, destination) {
     wg.gain.setValueAtTime(0.0001, t); wg.gain.exponentialRampToValueAtTime(0.32, t + 0.3); wg.gain.exponentialRampToValueAtTime(0.0001, t + 7.8);
     w.connect(wbp); wbp.connect(wg); wg.connect(bus);
     out(bus, 0.9, 0.55);
+    api.growl({ dur: 2.2, f0: rnd(50, 58), level: 0.6, drive: 8, attack: 0.02, ring: 0.4, formant: 0.85 });
+    api.crowd({ voices: 6, dur: 2.0, level: 0.18 });
   };
 
   /* --- air rushing past --- */
@@ -399,71 +739,14 @@ function createSound(ac, destination) {
     const p = panner(pan); n.connect(bp); bp.connect(gn); gn.connect(p); out(p, 0.8, 0.25);
   };
 
-  /* --- the voices of the escaping evils --- */
-  api.voice = (type, dur, pan0 = 0, pan1 = 0, pitch = 1) => {
-    const t = now(), bus = gainNode(1);
-    let f0, c, F1, F2, vr, vd, level, harsh = 0, att = 0.12;
-    switch (type) {
-      case 'shriek': f0 = rnd(620, 820) * pitch; c = [1, 1.45, 1.1, 0.55]; F1 = [850, 950, 700]; F2 = [2000, 2400, 1700]; vr = 7.5; vd = 0.028; level = 0.15; harsh = 3; att = 0.04; break;
-      case 'moan': f0 = rnd(140, 175) * pitch; c = [0.9, 1.1, 1, 0.7]; F1 = [350, 480, 320]; F2 = [700, 900, 650]; vr = 4.2; vd = 0.018; level = 0.75; att = 0.35; break;
-      case 'groan': f0 = rnd(95, 125) * pitch; c = [1, 1.15, 0.9, 0.75]; F1 = [600, 520, 450]; F2 = [1050, 900, 800]; vr = 3.2; vd = 0.03; level = 0.72; harsh = 1.8; att = 0.2; break;
-      case 'cackle': f0 = rnd(300, 380) * pitch; c = [1.25, 1.15, 1.0, 0.85]; F1 = [780, 820, 760]; F2 = [1250, 1300, 1200]; vr = 6; vd = 0.02; level = 0.7; att = 0.03; break;
-      case 'hiss': f0 = rnd(110, 130) * pitch; c = [1, 1, 0.95, 0.9]; F1 = [500, 520, 480]; F2 = [900, 950, 880]; vr = 5; vd = 0.02; level = 0.12; break;
-      case 'death': f0 = rnd(72, 82) * pitch; c = [1, 1.18, 0.95, 0.6]; F1 = [330, 420, 300]; F2 = [640, 760, 560]; vr = 3.6; vd = 0.022; level = 1.0; harsh = 1.5; att = 0.4; break;
-      default: f0 = rnd(300, 440) * pitch; c = [0.82, 1.28, 1.05, 0.6]; F1 = [450, 720, 420]; F2 = [950, 1250, 800]; vr = 5.6; vd = 0.02; level = 0.58; att = 0.15;
-    }
-    const src = gainNode(0.5);
-    const vib = osc('sine', vr), vg = gainNode(f0 * vd); vib.connect(vg);
-    const oscs = [osc('sawtooth', f0), osc('sawtooth', f0)];
-    oscs[1].detune.value = rnd(8, 16);
-    for (const o of oscs) {
-      const fr = o.frequency;
-      fr.setValueAtTime(f0 * c[0], t); fr.exponentialRampToValueAtTime(f0 * c[1], t + dur * 0.3);
-      fr.exponentialRampToValueAtTime(f0 * c[2], t + dur * 0.65); fr.exponentialRampToValueAtTime(f0 * c[3], t + dur);
-      vg.connect(fr); o.connect(src); o.start(t); o.stop(t + dur + 0.1);
-    }
-    vib.start(t); vib.stop(t + dur + 0.1);
-    let tone = src;
-    if (harsh) { const s = shaper(harsh); src.connect(s); tone = s; }
-    const b1 = filt('bandpass', F1[0], 7), b2 = filt('bandpass', F2[0], 9);
-    for (const [b, F] of [[b1, F1], [b2, F2]]) { b.frequency.setValueAtTime(F[0], t); b.frequency.linearRampToValueAtTime(F[1], t + dur * 0.4); b.frequency.linearRampToValueAtTime(F[2], t + dur); }
-    const g1 = gainNode(1), g2 = gainNode(0.7), fry = gainNode(1), amp = gainNode(0);
-    tone.connect(b1); tone.connect(b2); b1.connect(g1); b2.connect(g2); g1.connect(fry); g2.connect(fry);
-    const n = noise(t, dur + 0.3), nb = filt('bandpass', F2[1], 3), ngn = gainNode(type === 'hiss' ? 0 : 0.18);
-    n.connect(nb); nb.connect(ngn); ngn.connect(fry);
-    fry.connect(amp);
-    if (type === 'groan' || type === 'death') { fry.gain.value = 0.65; const am = osc('square', rnd(24, 32)), amG = gainNode(0.35); am.connect(amG); amG.connect(fry.gain); am.start(t); am.stop(t + dur + 0.1); }
-    const A = amp.gain; A.setValueAtTime(0.0001, t);
-    if (type === 'cackle') {
-      let tt = t, k = 0;
-      while (tt < t + dur * 0.9) { A.setTargetAtTime(level * (1 - k * 0.04), tt, 0.012); A.setTargetAtTime(level * 0.06, tt + 0.07, 0.02); tt += 0.125 + Math.random() * 0.02; k++; }
-      A.setTargetAtTime(0.0001, t + dur * 0.9, 0.05);
-    } else {
-      A.exponentialRampToValueAtTime(level, t + att); A.setValueAtTime(level, t + dur * 0.62);
-      A.exponentialRampToValueAtTime(level * 0.6, t + dur * 0.8); A.exponentialRampToValueAtTime(0.0001, t + dur);
-    }
-    amp.connect(bus);
-    if (type === 'hiss') {
-      const hn = noise(t, dur + 0.2), hb = filt('bandpass', 4200, 2.5), hg = gainNode(0), flut = gainNode(0.75);
-      hb.frequency.setValueAtTime(3400, t); hb.frequency.linearRampToValueAtTime(5200, t + dur);
-      hg.gain.setValueAtTime(0.0001, t); hg.gain.exponentialRampToValueAtTime(0.42, t + 0.25); hg.gain.setValueAtTime(0.42, t + dur * 0.7); hg.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      const fl = osc('sine', 11), flG = gainNode(0.25); fl.connect(flG); flG.connect(flut.gain); fl.start(t); fl.stop(t + dur + 0.1);
-      hn.connect(hb); hb.connect(hg); hg.connect(flut); flut.connect(bus);
-    }
-    const lp = filt('lowpass', 4200, 0.5), p = panner(pan0);
-    if (p.pan) { p.pan.setValueAtTime(clamp(pan0, -1, 1), t); p.pan.linearRampToValueAtTime(clamp(pan1, -1, 1), t + dur); }
-    bus.connect(lp); lp.connect(p); out(p, 0.85, 0.55);
-    api.whoosh(dur * 0.5, Math.min(1.1, dur * 0.4), pan1, type === 'death' ? 0.5 : 0.36);
-  };
-
-  /* --- Hope: a glass chime and a warm chord --- */
+  /* ---------------- Hope: a glass chime and a warm chord ---------------- */
   api.chime = (freq = 880, amp = 0.16, delay = 0, muffled = false) => {
     const t = now() + delay, bus = gainNode(1);
     [[1, 1, 3.2], [2.003, 0.42, 1.8], [3.01, 0.2, 1.1], [4.2, 0.08, 0.6]].forEach(([m, a, d]) => {
       for (const det of [-3, 3]) { const oc = osc('sine', freq * m), gg = gainNode(0); oc.detune.value = det; env(gg.gain, t, 0.004, amp * a * 0.5, 0, d); oc.connect(gg); gg.connect(bus); oc.start(t); oc.stop(t + d + 0.1); }
     });
     // muffled: Hope, still ringing somewhere inside the shut box
-    if (muffled) { const lp = filt('lowpass', 1100, 0.7); bus.connect(lp); out(lp, 0.6, 0.9, amb); }
+    if (muffled) { const lp = filt('lowpass', 1100, 0.7); bus.connect(lp); out(lp, 0.6, 0.9, 'amb'); }
     else out(bus, 0.7, 0.8);
   };
   api.padStart = dur => {
@@ -1052,7 +1335,7 @@ class Wraith {
   mouth() {
     const t = this.t, d = this.dur;
     let m = smooth(t / 0.2) * (1 - smooth((t - d * 0.7) / (d * 0.3)));
-    if (this.spec.voice === 'cackle') m *= 0.35 + 0.65 * (Math.sin(t * TAU * 8) * 0.5 + 0.5);
+    if (this.spec.voice === 'laugh') m *= 0.35 + 0.65 * (Math.sin(t * TAU * 4.5) * 0.5 + 0.5);
     else m *= 0.7 + 0.3 * Math.sin(t * 9 + this.ph);
     return clamp(m + this.startle, 0, 1.2);
   }
@@ -1147,7 +1430,8 @@ function wrapText(text, maxW) {
   if (line) lines.push(line);
   return lines;
 }
-function addWhisper() {
+// a whisper's words appear near the seal; silent when the sound is already playing elsewhere
+function addWhisper(silent) {
   if (whispers.length >= 2) return;
   const again = cycles > 0 && Math.random() < 0.3;
   if (!whisperDeck.length) whisperDeck = shuffle(WHISPERS.slice());
@@ -1166,7 +1450,7 @@ function addWhisper() {
     whispers.push({ lines, x0, y0, bw, bh, lh, fs, t: 0, dur: 3.8 });
     break;
   }
-  audio.play('whisper', clamp((whispers.length ? whispers[whispers.length - 1].x0 - cx : 0) / (W / 2), -1, 1), rnd(1.4, 2.1));
+  if (!silent) audio.play('whisper', clamp((whispers.length ? whispers[whispers.length - 1].x0 - cx : 0) / (W / 2), -1, 1), rnd(1.4, 2.1));
 }
 function drawWhispers(dt) {
   g.textAlign = 'left'; g.textBaseline = 'top';
@@ -1349,7 +1633,7 @@ const det = new LidDetector();
 /* ================= story state ================= */
 const state = { name: 'idle', t: 0 };
 const fx = { shake: 0, kick: 0, crackGlow: 0, flash: 0, light: 0, shock: -1, tremble: 0, crackP: 0, cracked: false, crackles: 0, slam: false, hopeT: 0 };
-let clock = 0, cycles = 0, lidIntact = true, nextKnock = 3, nextWhisper = 2, cooldownUntil = 0;
+let clock = 0, cycles = 0, lidIntact = true, cooldownUntil = 0;
 // mode: 'setup' (card showing), 'tap' (touch the seal to open it), 'lid' (the camera watches the box lid)
 let mode = 'setup', paused = false, crackAt = T.crackAt, breachDur = T.breach, armingClosed = false, hopeChecked = false;
 let dimProbe = 0, dimUI = 0;
@@ -1367,8 +1651,7 @@ function enterIdle(fromReseal) {
   if (!fromReseal) clearShow();
   state.name = 'idle'; state.t = 0; lidIntact = true; fx.light = 0;
   newSeal();
-  nextKnock = fromReseal ? rnd(5, 8) : rnd(2.2, 4);
-  nextWhisper = fromReseal ? rnd(3.5, 5) : rnd(1.2, 2.4);
+  dreadStart(fromReseal ? rnd(4, 6) : rnd(1.5, 3), rnd(8, 14));
   if (fromReseal) { eye.open = 0; eye.openT = 0; eye.wakeAt = 2.4; cooldownUntil = clock + T.cooldown; } else { eye.openT = 0.9; eye.wakeAt = 0; }
   eye.dilateT = 0.12; eye.glow = 0.6;
   if (pendingDowngrade) applyDowngrade();
@@ -1381,6 +1664,7 @@ function enterBreach(x, y) {
   eye.openT = 1.22; eye.open = Math.max(eye.open, 0.95); eye.blinkT = -1; eye.dilateT = 0; eye.glow = 1.2; eye.wakeAt = 0;
   for (const w of whispers) w.t = Math.max(w.t, w.dur - 0.5);
   queue.length = 0;
+  audio.play('cutAmb', 0.12); // the box falls silent the instant it opens
   audio.play('inhale'); audio.play('rumble', breachDur); audio.play('droneLevel', 0.3, 1.2);
 }
 // lid mode: light floods in, the eye snaps open and stares up at whoever lifted the lid
@@ -1390,6 +1674,7 @@ function enterBreachLight() {
   crackAt = LID.crackAt; breachDur = LID.breach;
   eye.open = 0; eye.openT = 1.22; eye.dilate = 1; eye.dilateT = 0.05; eye.tx = eye.ty = eye.lx = eye.ly = 0;
   eye.glow = 1.2; eye.blinkT = -1; eye.wakeAt = 0;
+  audio.play('cutAmb', 0.12);
   audio.play('inhale'); audio.play('rumble', breachDur); audio.play('droneLevel', 0.3, 1.2);
 }
 function enterEscape() {
@@ -1398,8 +1683,8 @@ function enterEscape() {
   audio.play('burst');
   for (let i = 0; i < 90 * Q; i++) { const a = rnd(TAU), r = rnd(rLid), sp = rnd(0.3, 1.4) * M; spawnSpark(cx + Math.cos(a) * r, cy + Math.sin(a) * r, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.5, 1.4), rnd(0.012, 0.03) * M, Math.random() < 0.3 ? 'hot' : 'ember'); }
   for (let i = 0; i < 26 * Q; i++) { const a = rnd(TAU), r = rnd(rLid * 0.6), sp = rnd(0.12, 0.4) * M; spawnSmoke(cx + Math.cos(a) * r, cy + Math.sin(a) * r, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.06, 0.12) * M, rnd(1.4, 2.6), Math.random() < 0.35); }
-  const shriekers = POOL.filter(p => p.voice === 'shriek');
-  const must = [POOL[0], POOL[2], POOL[4], pick(shriekers)];
+  // every show gets the laugh, the shriek, a roar and a scream; four more are drawn at random
+  const must = [POOL[4], POOL[7], pick([POOL[5], POOL[9]]), pick([POOL[3], POOL[11]])];
   const rest = shuffle(POOL.filter(p => !must.includes(p))).slice(0, 4);
   evils = shuffle([...must, ...rest]); evils.push(DEATH);
   const base = rnd(TAU);
@@ -1421,7 +1706,7 @@ function enterArming() {
   state.name = 'arming'; state.t = 0; lidIntact = true; armingClosed = false; blackDone = false;
   det.reset('open'); det.hi = null;
   showCard('arming');
-  audio.play('cut', 0.2); audio.play('droneLevel', 0.6, 1);
+  audio.play('cut', 0.2); audio.play('cutAmb', 0.2); audio.play('droneLevel', 0.6, 1);
 }
 // lid mode: the box is shut. The screen goes black (nobody can see it); the knocking and whispering carry on.
 function enterSealed(fromArming) {
@@ -1429,7 +1714,7 @@ function enterSealed(fromArming) {
   state.name = 'sealed'; state.t = 0; lidIntact = true; fx.crackGlow = 0.1; blackDone = false;
   eye.open = 0; eye.openT = 0; eye.blinkT = -1;
   newSeal();
-  nextKnock = rnd(6, 10); nextWhisper = rnd(4, 7);
+  dreadStart(fromArming ? rnd(3, 5) : rnd(5, 8), rnd(16, 28));
   if (fromArming) { hidePanel(); audio.play('clunk', 0); }
   else { audio.play('cut', 0.35); audio.play('chime', 1318.51, 0.08, 2.2, true); cycles++; }
   audio.play('droneLevel', 1, 3);
@@ -1452,7 +1737,7 @@ function touchAt(x, y) {
         if (d < reach) { const f = (1 - d / reach) * 2.4 * M; w.vx += (dx / d) * f; w.vy += (dy / d) * f; w.startle = 1; }
       }
       for (let i = 0; i < 18 * Q; i++) { const a = rnd(TAU), sp = rnd(0.2, 0.8) * M; spawnSpark(x, y, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.3, 0.8), rnd(0.01, 0.022) * M, 'ember'); }
-      audio.play('voice', 'shriek', 0.7, clamp((x - cx) / (W / 2), -1, 1), clamp((x - cx) / (W / 2), -1, 1), rnd(1, 1.3));
+      audio.play('voice', 'shriek', 0.8, clamp((x - cx) / (W / 2), -1, 1), clamp((x - cx) / (W / 2), -1, 1), rnd(1, 1.2));
       break;
     }
     case 'hope':
@@ -1475,6 +1760,112 @@ function doKnock() {
     d += rnd(0.17, 0.24);
   }
   after(d + 0.1, () => { eye.tx = rnd(-0.6, 0.6); eye.ty = rnd(0.2, 0.7); eye.nextLook = clock + rnd(1.2, 2.2); });
+}
+
+/* ================= dread: whatever lives in the box =================
+   A director for the sounds from inside the shut box. A long stretch of slow, rasping breathing; then
+   it stirs (whispers, claws on the lid, a growl, a scream from somewhere far below); then a frenzy (a
+   racing heartbeat, whispers from every side) that ends in fists pounding the lid and a muffled
+   scream; then silence, and perhaps one whisper right in your ear. In tap mode the seal shows it too:
+   knocks jolt the lid and the cracks glow with every heartbeat. */
+const dread = { phase: 'calm', until: 0, next: 0, hb: null };
+function dreadStart(delay, calm) { dread.phase = 'calm'; dread.next = delay; dread.until = delay + calm; dread.hb = null; }
+function weighted(table) {
+  let r = Math.random() * Object.values(table).reduce((a, b) => a + b, 0);
+  for (const k in table) { r -= table[k]; if (r <= 0) return k; }
+  return Object.keys(table)[0];
+}
+function jolt(d, s) {
+  after(d, () => {
+    fx.kick = Math.max(fx.kick, Math.min(1, 0.9 * s)); fx.crackGlow = Math.min(1, fx.crackGlow + 0.45 * s);
+    if (s > 1) fx.shake = Math.max(fx.shake, 0.22);
+    for (let k = 0; k < 7 * Q; k++) { const a = rnd(TAU), r = rLid * rnd(0.98, 1.02), sp = rnd(0.02, 0.07) * M; spawnMote(cx + Math.cos(a) * r, cy + Math.sin(a) * r, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.8, 1.6), rnd(0.006, 0.012) * M, 'ember'); }
+  });
+}
+function dreadEvent(kind, visual) {
+  switch (kind) {
+    case 'breaths': {
+      const n = 2 + ((Math.random() * 3) | 0), pan = rnd(-0.3, 0.3); let d = 0;
+      for (let i = 0; i < n; i++) {
+        const inh = rnd(1.0, 1.5), ex = rnd(1.5, 2.3);
+        audio.play('breath', { delay: d, inhale: inh, exhale: ex, pan, level: rnd(0.4, 0.6), growl: rnd(0.2, 0.45) });
+        if (visual) after(d + inh, () => { fx.crackGlow = Math.min(1, fx.crackGlow + 0.18); });
+        d += inh + ex + rnd(0.3, 1.0);
+      }
+      return d;
+    }
+    case 'knock': doKnock(); return 1.0;
+    case 'pound': {
+      const n = 5 + ((Math.random() * 5) | 0); let d = 0, gap = rnd(0.14, 0.2), s = 0.7;
+      for (let i = 0; i < n; i++) { audio.play('knock', d, Math.min(1.25, s), true); jolt(d, 1.2); d += gap; gap = Math.max(0.09, gap * rnd(0.88, 0.97)); s += 0.08; }
+      audio.play('scream', { delay: d * 0.4, dur: rnd(1.3, 1.9), f0: rnd(480, 720), level: 0.3, muffle: 1400, dry: 0.6, wet: 0.7, bus: 'amb' });
+      after(0, () => { eye.blinkT = -1; eye.openT = 1.15; eye.dilateT = 1; eye.glow = 1.3; eye.tx = 0; eye.ty = 0; });
+      after(d + 0.8, () => { eye.openT = 0.92; eye.dilateT = 0.12; eye.glow = 0.6; });
+      return d + 1.2;
+    }
+    case 'whisper':
+      if (visual) addWhisper(); else audio.play('whisper', rnd(-0.7, 0.7), rnd(1.4, 2.1));
+      return 2.0;
+    case 'whisperChorus': {
+      const n = 3 + ((Math.random() * 3) | 0);
+      for (let i = 0; i < n; i++) audio.play('whisper', rnd(-0.95, 0.95), rnd(1.2, 2.2), { delay: i * rnd(0.15, 0.45), level: rnd(0.5, 0.8) });
+      if (visual) addWhisper(true);
+      return 2.2;
+    }
+    case 'earWhisper': // one voice, close enough to feel
+      audio.play('whisper', pick([-0.95, 0.95]), rnd(0.9, 1.3), { level: 1.4, dry: 1.0, wet: 0.1, formant: 1.08 });
+      if (visual) addWhisper(true);
+      return 1.4;
+    case 'swellWhisper':
+      audio.play('whisper', rnd(-0.7, 0.7), rnd(1.2, 1.8), { swell: true, wet: 0.9, level: 0.85 });
+      return 1.9;
+    case 'scratch': {
+      const n = 1 + ((Math.random() * 3) | 0), pan = rnd(-0.5, 0.5); let d = 0;
+      for (let i = 0; i < n; i++) { const dur = rnd(0.45, 1.2); audio.play('scratch', { delay: d, dur, pan: pan + rnd(-0.2, 0.2), level: rnd(0.45, 0.65) }); d += dur + rnd(0.05, 0.35); }
+      if (visual) after(0, () => { fx.crackGlow = Math.min(1, fx.crackGlow + 0.25); });
+      return d;
+    }
+    case 'growl':
+      audio.play('growl', { f0: rnd(55, 70), dur: rnd(1.8, 2.8), level: 0.3, bus: 'amb', wet: 0.8, attack: 0.5 });
+      after(0, () => { eye.dilateT = 0.9; eye.glow = 1.1; }); after(2.5, () => { eye.dilateT = 0.12; eye.glow = 0.6; });
+      return 2.6;
+    case 'distant':
+      audio.play('scream', { f0: rnd(650, 950), dur: rnd(1.4, 2.2), level: 0.2, muffle: 1100, dry: 0.25, wet: 1.0, pan0: rnd(-0.8, 0.8), bus: 'amb' });
+      return 2.2;
+    case 'laugh':
+      audio.play('laugh', { deep: true, dur: rnd(1.8, 2.4), level: 0.32, bus: 'amb', wet: 1.0 });
+      return 2.4;
+  }
+  return 1;
+}
+function stepDread(t, visual) {
+  if (dread.hb && t >= dread.hb.next) { // the heartbeat runs on its own clock and keeps speeding up
+    audio.play('heartbeat', 0, dread.hb.s);
+    if (visual) { fx.crackGlow = Math.min(1, fx.crackGlow + 0.3); fx.kick = Math.max(fx.kick, 0.18); }
+    dread.hb.bpm = Math.min(150, dread.hb.bpm * 1.07); dread.hb.s = Math.min(1.3, dread.hb.s + 0.03);
+    dread.hb.next = t + 60 / dread.hb.bpm;
+  }
+  if (t < dread.next) return;
+  if (t >= dread.until) {
+    if (dread.phase === 'calm') { dread.phase = 'stir'; dread.until = t + rnd(14, 24); }
+    else if (dread.phase === 'stir') { dread.phase = 'frenzy'; dread.until = t + rnd(6, 9); dread.hb = { next: t, bpm: 66, s: 0.8 }; }
+    else if (dread.phase === 'frenzy') {
+      dread.hb = null;
+      const d = dreadEvent('pound', visual);
+      dread.phase = 'hush'; dread.until = t + d + rnd(6, 11); dread.next = dread.until;
+      return;
+    } else {
+      const d = Math.random() < 0.6 ? dreadEvent(Math.random() < 0.7 ? 'earWhisper' : 'laugh', visual) : 0;
+      dread.phase = 'calm'; dread.until = t + d + rnd(18, 30); dread.next = t + d + rnd(3, 6);
+      return;
+    }
+  }
+  let kind, gap;
+  if (dread.phase === 'calm') { kind = Math.random() < 0.8 ? 'breaths' : pick(['knock', 'whisper']); gap = rnd(2, 5); }
+  else if (dread.phase === 'stir') { kind = weighted({ whisper: 30, scratch: 24, knock: 14, growl: 10, swellWhisper: 8, distant: 6, breaths: 8 }); gap = rnd(1.2, 3.5); }
+  else { kind = weighted({ whisper: 40, scratch: 35, whisperChorus: 25 }); gap = rnd(0.1, 0.4); }
+  const d = dreadEvent(kind, visual);
+  dread.next = t + (dread.phase === 'frenzy' ? d * 0.45 : d) + gap;
 }
 
 // every camera reading lands here while the lid sensor is on
@@ -1529,14 +1920,9 @@ function update(dt) {
   }
   if (st === 'idle') {
     fx.crackGlow = Math.max(0.1 + 0.05 * Math.sin(clock * 1.7), fx.crackGlow - dt * 0.9);
-    if (mode === 'tap') {
-      if (t > nextKnock) { doKnock(); nextKnock = t + rnd(5, 11); }
-      if (t > nextWhisper) { addWhisper(); nextWhisper = t + rnd(3.2, 5.5); }
-    }
+    if (mode === 'tap') stepDread(t, true);
   } else if (st === 'sealed') {
-    // heard, not seen: something knocking and whispering inside the shut box
-    if (t > nextKnock) { doKnock(); nextKnock = t + rnd(8, 15); }
-    if (t > nextWhisper) { audio.play('whisper', rnd(-0.5, 0.5), rnd(1.4, 2.1)); nextWhisper = t + rnd(6, 11); }
+    stepDread(t, false); // heard, not seen: whatever lives in the shut box
   } else if (st === 'breach') {
     if (!fx.cracked && t >= crackAt) { fx.cracked = true; audio.play('crack', 1); fx.kick = 1; fx.shake = 0.25; eye.blinkT = 0; eye.dilateT = 1; }
     const crackles = [crackAt + 0.4, crackAt + 0.75, crackAt + 1.05];
@@ -1840,6 +2226,7 @@ document.addEventListener('visibilitychange', () => {
 window.__pandora = {
   get state() { return state.name; },
   get mode() { return mode; },
+  get dread() { return dread.phase; },
   touch: (x = cx, y = cy) => { audio.unlock(); touchAt(x, y); },
   lid: () => ({ det: det.state, hi: det.hi, lo: det.lo, probing: det.probing, L: cam.L, armingClosed, dim: +dimProbe.toFixed(3), cam: cam.active, panel: panelShown }),
   stats: () => ({ fps: +fpsShown.toFixed(1), mode, renderScale, Q, wraiths: wraiths.length, sparks: sparks.length, smoke: smoke.length, motes: motes.length, W, H, S: +S.toFixed(2),
