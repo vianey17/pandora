@@ -176,11 +176,11 @@ const POOL = [
   { gr: 'ΛΙΜΟΣ', en: 'Famine', voice: 'choir', pitch: 1 },
   { gr: 'ΦΘΟΝΟΣ', en: 'Envy', voice: 'hiss', pitch: 1 },
   { gr: 'ΕΡΙΣ', en: 'Strife', voice: 'scream', pitch: 1 },
-  { gr: 'ΑΠΑΤΗ', en: 'Deceit', voice: 'laugh', pitch: 1 },
+  { gr: 'ΑΠΑΤΗ', en: 'Deceit', voice: 'turn', pitch: 1 },
   { gr: 'ΠΟΝΟΣ', en: 'Toil', voice: 'growl', pitch: 1 },
-  { gr: 'ΓΗΡΑΣ', en: 'Old Age', voice: 'wail', pitch: 0.75 },
+  { gr: 'ΓΗΡΑΣ', en: 'Old Age', voice: 'growl', pitch: 1.45 },
   { gr: 'ΦΟΒΟΣ', en: 'Fear', voice: 'shriek', pitch: 1 },
-  { gr: 'ΟΙΖΥΣ', en: 'Misery', voice: 'wail', pitch: 1.1 },
+  { gr: 'ΟΙΖΥΣ', en: 'Misery', voice: 'choir', pitch: 1.2 },
   { gr: 'ΑΤΗ', en: 'Ruin', voice: 'growl', pitch: 0.85 },
   { gr: 'ΔΕΙΜΟΣ', en: 'Dread', voice: 'choir', pitch: 0.8 },
   { gr: 'ΑΛΓΕΑ', en: 'Sorrows', voice: 'scream', pitch: 0.85 },
@@ -190,9 +190,9 @@ const WHISPERS = ['let us out', 'open it', 'just one touch', 'we have waited so 
 const WHISPERS_AGAIN = ['again…', 'once more', 'it felt so good to be free'];
 const NOTES = [880, 987.77, 1108.73, 1318.51, 1479.98, 1760];
 
-const T = { breach: 1.8, crackAt: 0.25, emerge0: 0.4, emergeGap: 0.5, hope: 9.5, resealFly: 1.4, resealHold: 1.0, cooldown: 1.5 };
+const T = { breach: 1.8, crackAt: 0.25, emerge0: 0.9, emergeGap: 0.6, hope: 9.5, resealFly: 1.4, resealHold: 1.0, cooldown: 1.5 };
 // lid-sensor timings: the eye gets a beat to see who opened the box before the seal cracks
-const LID = { breach: 2.1, crackAt: 0.6, firstCheck: 0.15, checkEvery: 15, armCheckAfter: 5, armCheckEvery: 8 };
+const LID = { breach: 2.0, crackAt: 0.6, firstCheck: 0.15, checkEvery: 15, armCheckAfter: 5, armCheckEvery: 8 };
 
 /* ================= sound: everything is synthesized =================
    No recordings: every scream, whisper and knock is built from oscillators, noise and filters.
@@ -512,7 +512,10 @@ function createSound(ac, destination) {
       case 'scream': api.scream({ ...o, f0: rnd(520, 760) * pitch, level: 0.42 }); break;
       case 'shriek': api.scream({ ...o, f0: rnd(850, 1150) * pitch, level: 0.34, formant: 1.18, rough: 0.85, contour: [[0, 0.8], [0.08, 1.2], [0.5, 1.08], [1, 0.7]] }); break;
       case 'growl': api.growl({ ...o, f0: rnd(62, 84) * pitch, level: 0.66 }); break;
-      case 'laugh': { const deep = Math.random() < 0.6; api.laugh({ ...o, deep, level: deep ? 1.15 : 0.7 }); break; }
+      case 'laugh': case 'turn': { // Deceit: a soft, friendly voice that drops two octaves mid-word into something huge
+        api.scream({ ...o, dur: dur * 0.55, f0: rnd(240, 280) * pitch, level: 0.22, formant: 1.1, contour: [[0, 1], [0.6, 1.03], [1, 0.42]], dry: 1.0, wet: 0.35 });
+        api.growl({ ...o, delay: dur * 0.45, dur: dur * 0.65, f0: rnd(60, 68) * pitch, level: 0.8, drive: 8, attack: 0.04, ring: 0.35, formant: 0.85 });
+        break; }
       case 'choir': api.choir({ ...o, base: rnd(130, 175) * pitch, level: 0.41 }); break;
       case 'wail': api.wail({ ...o, f0: rnd(780, 1080) * pitch, level: 0.6 }); break;
       case 'hiss': api.hiss(o); break;
@@ -736,7 +739,7 @@ function createSound(ac, destination) {
     w.connect(wbp); wbp.connect(wg); wg.connect(bus);
     out(bus, 0.9, 0.55);
     api.growl({ dur: 2.2, f0: rnd(50, 58), level: 0.6, drive: 8, attack: 0.02, ring: 0.4, formant: 0.85 });
-    api.crowd({ voices: 6, dur: 2.0, level: 0.18 });
+    api.crowd({ voices: 6, dur: 0.85, level: 0.2 });
   };
 
   /* --- air rushing past --- */
@@ -765,6 +768,11 @@ function createSound(ac, destination) {
     });
     lp.connect(bus); out(bus, 0.6, 0.7);
     pad = bus;
+  };
+  api.tone = (freq = 587.33, amp = 0.2, delay = 0) => {
+    const t = now() + delay, bus = gainNode(1);
+    [[1, 1, 4.5], [2.76, 0.05, 1.2]].forEach(([m, a, d]) => { const oc = osc('sine', freq * m), gg = gainNode(0); env(gg.gain, t, 0.012, amp * a, 0, d); oc.connect(gg); gg.connect(bus); oc.start(t); oc.stop(t + d + 0.2); });
+    out(bus, 1.0, 0.2);
   };
   api.padStop = (rel = 2) => { if (!pad) return; const t = now(); hold(pad.gain, t); pad.gain.exponentialRampToValueAtTime(0.0001, t + rel); pad = null; };
 
@@ -1664,7 +1672,7 @@ function enterIdle(fromReseal) {
   if (!fromReseal) clearShow();
   state.name = 'idle'; state.t = 0; lidIntact = true; fx.light = 0;
   newSeal();
-  dreadStart(fromReseal ? rnd(4, 6) : rnd(1.5, 3), rnd(8, 14));
+  dreadStart(fromReseal ? rnd(4, 6) : rnd(1.5, 3), rnd(60, 120));
   if (fromReseal) { eye.open = 0; eye.openT = 0; eye.wakeAt = 2.4; cooldownUntil = clock + T.cooldown; } else { eye.openT = 0.9; eye.wakeAt = 0; }
   eye.dilateT = 0.12; eye.glow = 0.6;
   if (pendingDowngrade) applyDowngrade();
@@ -1678,7 +1686,7 @@ function enterBreach(x, y) {
   for (const w of whispers) w.t = Math.max(w.t, w.dur - 0.5);
   queue.length = 0;
   audio.play('cutAmb', 0.12); // the box falls silent the instant it opens
-  audio.play('inhale'); audio.play('rumble', breachDur); audio.play('droneLevel', 0.3, 1.2);
+  breachSounds();
 }
 // lid mode: light floods in, the eye snaps open and stares up at whoever lifted the lid
 function enterBreachLight() {
@@ -1688,12 +1696,18 @@ function enterBreachLight() {
   eye.open = 0; eye.openT = 1.22; eye.dilate = 1; eye.dilateT = 0.05; eye.tx = eye.ty = eye.lx = eye.ly = 0;
   eye.glow = 1.2; eye.blinkT = -1; eye.wakeAt = 0;
   audio.play('cutAmb', 0.12);
-  audio.play('inhale'); audio.play('rumble', breachDur); audio.play('droneLevel', 0.3, 1.2);
+  breachSounds();
+}
+function breachSounds() {
+  audio.play('cutAmb', 0.04); audio.play('droneLevel', 0.0001, 0.06);
+  after(0.35, () => audio.play('inhale'));
+  after(0.5, () => { audio.play('rumble', Math.max(0.6, breachDur - 0.8)); audio.play('droneLevel', 0.35, Math.max(0.5, breachDur - 0.8)); });
+  after(Math.max(0.9, breachDur - 0.3), () => { audio.play('cut', 0.03); audio.play('droneLevel', 0.0001, 0.03); });
 }
 function enterEscape() {
   state.name = 'escape'; state.t = 0; lidIntact = false;
   fx.flash = 1; fx.shake = 1; fx.shock = 0; fx.light = 1; fx.crackGlow = 0; fx.tremble = 0; fx.kick = 0;
-  audio.play('burst');
+  audio.play('burst'); audio.play('droneLevel', 0.3, 0.4);
   for (let i = 0; i < 90 * Q; i++) { const a = rnd(TAU), r = rnd(rLid), sp = rnd(0.3, 1.4) * M; spawnSpark(cx + Math.cos(a) * r, cy + Math.sin(a) * r, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.5, 1.4), rnd(0.012, 0.03) * M, Math.random() < 0.3 ? 'hot' : 'ember'); }
   for (let i = 0; i < 26 * Q; i++) { const a = rnd(TAU), r = rnd(rLid * 0.6), sp = rnd(0.12, 0.4) * M; spawnSmoke(cx + Math.cos(a) * r, cy + Math.sin(a) * r, Math.cos(a) * sp, Math.sin(a) * sp, rnd(0.06, 0.12) * M, rnd(1.4, 2.6), Math.random() < 0.35); }
   // every show gets the laugh, the shriek, a roar and a scream; four more are drawn at random
@@ -1707,8 +1721,8 @@ function enterEscape() {
 function enterHope() {
   state.name = 'hope'; state.t = 0; hopeChecked = false;
   hope = { t: 0, x: cx, y: cy, flap: 0, boost: 0, appear: 0 };
-  audio.play('padStart', mode === 'lid' ? 0 : T.hope);
-  audio.play('chime', 880, 0.16, 0.5); audio.play('chime', 1318.51, 0.1, 1.4); audio.play('chime', 1108.73, 0.09, 2.3);
+  audio.play('cut', 0.12); audio.play('droneLevel', 0.0001, 0.15); // silence first...
+  audio.play('tone', 587.33, 0.09, 0.8); // ...then one small, clean, close tone
 }
 function enterReseal() {
   state.name = 'reseal'; state.t = 0; fx.slam = false;
@@ -1727,7 +1741,7 @@ function enterSealed(fromArming) {
   state.name = 'sealed'; state.t = 0; lidIntact = true; fx.crackGlow = 0.1; blackDone = false;
   eye.open = 0; eye.openT = 0; eye.blinkT = -1;
   newSeal();
-  dreadStart(fromArming ? rnd(3, 5) : rnd(5, 8), rnd(16, 28));
+  dreadStart(fromArming ? rnd(3, 5) : rnd(5, 8), rnd(60, 120));
   if (fromArming) { hidePanel(); audio.play('clunk', 0); }
   else { audio.play('cut', 0.35); audio.play('chime', 1318.51, 0.08, 2.2, true); cycles++; }
   audio.play('droneLevel', 1, 3);
@@ -1860,21 +1874,21 @@ function stepDread(t, visual) {
   }
   if (t < dread.next) return;
   if (t >= dread.until) {
-    if (dread.phase === 'calm') { dread.phase = 'stir'; dread.until = t + rnd(14, 24); }
-    else if (dread.phase === 'stir') { dread.phase = 'frenzy'; dread.until = t + rnd(6, 9); dread.hb = { next: t, bpm: 66, s: 0.8 }; }
+    if (dread.phase === 'calm') { dread.phase = 'stir'; dread.until = t + rnd(8, 14); }
+    else if (dread.phase === 'stir') { dread.phase = 'frenzy'; dread.until = t + rnd(5, 7); dread.hb = { next: t, bpm: 66, s: 0.8 }; }
     else if (dread.phase === 'frenzy') {
       dread.hb = null;
       const d = dreadEvent('pound', visual);
       dread.phase = 'hush'; dread.until = t + d + rnd(6, 11); dread.next = dread.until;
       return;
     } else {
-      const d = Math.random() < 0.6 ? dreadEvent(Math.random() < 0.7 ? 'earWhisper' : 'laugh', visual) : 0;
-      dread.phase = 'calm'; dread.until = t + d + rnd(18, 30); dread.next = t + d + rnd(3, 6);
+      const d = Math.random() < 0.6 ? dreadEvent('earWhisper', visual) : 0;
+      dread.phase = 'calm'; dread.until = t + d + rnd(120, 200); dread.next = t + d + rnd(12, 25);
       return;
     }
   }
   let kind, gap;
-  if (dread.phase === 'calm') { kind = Math.random() < 0.8 ? 'breaths' : pick(['knock', 'whisper']); gap = rnd(2, 5); }
+  if (dread.phase === 'calm') { kind = weighted({ breaths: 50, knock: 22, whisper: 16, scratch: 12 }); gap = rnd(20, 45); }
   else if (dread.phase === 'stir') { kind = weighted({ whisper: 30, scratch: 24, knock: 14, growl: 10, swellWhisper: 8, distant: 6, breaths: 8 }); gap = rnd(1.2, 3.5); }
   else { kind = weighted({ whisper: 40, scratch: 35, whisperChorus: 25 }); gap = rnd(0.1, 0.4); }
   const d = dreadEvent(kind, visual);
@@ -1953,7 +1967,11 @@ function update(dt) {
     while (emergeIdx < evils.length && t >= evils[emergeIdx].at) {
       const w = new Wraith(evils[emergeIdx++]); wraiths.push(w);
       const panEnd = clamp(Math.cos(w.a0 + w.swirl) * 0.95, -1, 1);
-      audio.play('voice', w.spec.voice, w.dur * 0.92, 0, panEnd, w.spec.pitch);
+      if (w.spec.death) {
+        audio.play('cut', 0.06); audio.play('droneLevel', 0.0001, 0.06);
+        const v = w.spec, dd = w.dur * 0.92;
+        after(0.5, () => { audio.play('droneLevel', 0.3, 1.5); audio.play('voice', v.voice, dd, 0, panEnd, v.pitch); });
+      } else audio.play('voice', w.spec.voice, Math.min(1.6, w.dur * 0.6), 0, panEnd, w.spec.pitch);
     }
     for (const w of wraiths) w.update(dt);
     wraiths = wraiths.filter(w => !w.dead);
