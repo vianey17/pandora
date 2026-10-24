@@ -529,6 +529,7 @@ function createSound(ac, destination) {
   // A drone: a low cluster grinding a semitone apart that swells like something huge breathing in its
   // sleep, a cold draught, and an endlessly rising tone underneath.
   api.droneStart = (sync = false) => {
+    return; // no drone: between sounds the box sits in true silence (the director's call)
     if (drone) return;
     const t = now(), bus = gainNode(0);
     bus.gain.setValueAtTime(0, t); bus.gain.linearRampToValueAtTime(1, t + 3);
